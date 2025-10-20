@@ -1,0 +1,64 @@
+@'
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+venv.bak/
+
+# Packaging/build
+dist/
+build/
+*.egg-info/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDEs, editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Secrets / env
+.env
+.env.*.local
+secrets.json
+
+# Streamlit / artifacts & outputs
+artifacts/
+*.png
+*.jpg
+*.jpeg
+*.joblib
+*.pkl
+
+# Large or local datasets (uncomment if you DO NOT want to include local CSVs)
+# data/
+# *.csv
+
+# Misc
+*.log
+*.tmp
+
+housing.csv
+'@ > .gitignore
+
