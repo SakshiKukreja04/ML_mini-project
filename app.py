@@ -19,6 +19,13 @@ except Exception as e:
     decision_tree = None
     _DT_AVAILABLE = False
     _DT_IMPORT_ERROR = e
+try:
+    from algorithms import multivariate_nonlinear
+    _MVNL_AVAILABLE = True
+except Exception as e:
+    multivariate_nonlinear = None
+    _MVNL_AVAILABLE = False
+    _MVNL_IMPORT_ERROR = e
 
 # -----------------------------
 # Header / Page Config
@@ -298,19 +305,64 @@ def main():
                             graph_placeholder.info("Decision tree image not available yet. Run the Decision Tree model.")
                 else:
                     # Visualization type selector (defaults to scatter) for regression
-                    plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
+                    # When Multivariate model is selected, show only multivariate-related plot options
+                    if selected_algo == "Multivariate Linear Regression":
+                        if not _MVNL_AVAILABLE:
+                            st.warning("Multivariate module not available (missing dependencies).")
+                        else:
+                            # Quick run from Overview
+                            if st.button("Run Multivariate (quick)"):
+                                st.info("Running multivariate model (quick)...")
+                                try:
+                                    data_path = os.path.join(os.getcwd(), "housing.csv")
+                                    mv_metrics, mv_art = multivariate_nonlinear.train_and_evaluate(data_path)
+                                    st.session_state['mvnl_metrics'] = mv_metrics
+                                    st.session_state['mvnl_artifacts'] = mv_art
+                                    st.session_state['mvnl_plot'] = mv_art.get('plot_png')
+                                    # try to create residual and actual-vs-pred plots
+                                    try:
+                                        st.session_state['mvnl_resid_png'] = multivariate_nonlinear.plot_residual_hist(mv_art)
+                                    except Exception:
+                                        st.session_state['mvnl_resid_png'] = None
+                                    try:
+                                        st.session_state['mvnl_actual_png'] = multivariate_nonlinear.plot_actual_vs_pred(mv_art)
+                                    except Exception:
+                                        st.session_state['mvnl_actual_png'] = None
+                                    st.success("Multivariate quick run complete")
+                                except FileNotFoundError:
+                                    st.error("housing.csv not found in project root.")
 
-                    if "latest_artifacts" in st.session_state and _LR_AVAILABLE:
-                        # Render chosen plot type from stored artifacts
-                        art = st.session_state["latest_artifacts"]
-                        png = linear_regression.plot_results(art, plot_type=plot_type)
-                        graph_placeholder.image(png, use_column_width=True)
-                    elif "latest_plot_lr" in st.session_state:
-                        # fallback to the previously generated default plot
-                        graph_placeholder.image(st.session_state["latest_plot_lr"], use_column_width=True)
+                        plot_type = st.selectbox("Plot type", options=["multivariate_3d", "residual_hist", "actual_vs_pred"], index=0)
+
+                        if plot_type == "multivariate_3d":
+                            if "mvnl_plot" in st.session_state and st.session_state.get('mvnl_plot') is not None:
+                                graph_placeholder.image(st.session_state.get('mvnl_plot'), use_column_width=True)
+                            else:
+                                graph_placeholder.info("3D plot not available. Run the Multivariate model from Model Configuration or click Run Multivariate (quick).")
+                        elif plot_type == "residual_hist":
+                            if "mvnl_resid_png" in st.session_state and st.session_state.get('mvnl_resid_png') is not None:
+                                graph_placeholder.image(st.session_state.get('mvnl_resid_png'), use_column_width=True)
+                            else:
+                                graph_placeholder.info("Residual histogram not available. Run the Multivariate model to generate test predictions.")
+                        else:
+                            if "mvnl_actual_png" in st.session_state and st.session_state.get('mvnl_actual_png') is not None:
+                                graph_placeholder.image(st.session_state.get('mvnl_actual_png'), use_column_width=True)
+                            else:
+                                graph_placeholder.info("Actual vs Predicted plot not available. Run the Multivariate model to generate test predictions.")
                     else:
-                        # Placeholder Plotly/Matplotlib chart can be rendered here later
-                        graph_placeholder.info("Graph Placeholder — Plotly charts will be placed here.")
+                        # non-multivariate: keep existing scatter/residual/hist behavior
+                        plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
+
+                        if "latest_artifacts" in st.session_state and _LR_AVAILABLE:
+                            # Render chosen plot type from stored artifacts
+                            art = st.session_state["latest_artifacts"]
+                            png = linear_regression.plot_results(art, plot_type=plot_type)
+                            graph_placeholder.image(png, use_column_width=True)
+                        elif "latest_plot_lr" in st.session_state:
+                            # fallback to the previously generated default plot
+                            graph_placeholder.image(st.session_state["latest_plot_lr"], use_column_width=True)
+                        else:
+                            graph_placeholder.info("Graph Placeholder — Plotly charts will be placed here.")
 
             with col2:
                 st.markdown("#### Metrics & Model Info")
@@ -355,6 +407,17 @@ def main():
                     st.write(f"Rows after drop: {prep.get('rows_after')}")
                     st.write("Features used:")
                     st.write(prep.get('features_used'))
+
+                # Show multivariate metrics if present
+                if "mvnl_artifacts" in st.session_state:
+                    mv = st.session_state["mvnl_artifacts"]
+                    st.markdown("---")
+                    st.markdown("**Multivariate Non-linear Regression Metrics (test)**")
+                    import pandas as _pd
+                    mm = mv.get('metrics_test', {})
+                    mm_df = _pd.DataFrame.from_dict(mm, orient='index', columns=['value']).reset_index().rename(columns={'index':'metric'})
+                    mm_df['value'] = mm_df['value'].apply(lambda x: round(x,4) if isinstance(x, float) else x)
+                    st.table(mm_df)
 
         # Model Configuration Tab
         with tabs[1]:
@@ -493,6 +556,32 @@ def main():
                     n_components = st.slider("n_components", min_value=1, max_value=50, value=5)
                     svd_solver = st.selectbox("svd_solver", options=["auto", "full", "arpack", "randomized"])  # placeholder
                     st.write({"n_components": n_components, "svd_solver": svd_solver})
+            elif selected_algo == "Multivariate Linear Regression":
+                with st.expander("Multivariate Non-linear Regression settings", expanded=True):
+                    degree = st.slider("Polynomial degree", min_value=1, max_value=4, value=2)
+                    alpha = st.number_input("Ridge alpha", min_value=0.0, value=1.0, format="%.2f")
+                    st.write({"degree": degree, "alpha": alpha})
+
+                if not _MVNL_AVAILABLE:
+                    st.warning("Multivariate module not available (missing deps).")
+                else:
+                    if st.button("Run Multivariate Non-linear model"):
+                        st.info("Training multivariate polynomial Ridge model...")
+                        try:
+                            data_path = os.path.join(os.getcwd(), "housing.csv")
+                            m_metrics, m_artifacts = multivariate_nonlinear.train_and_evaluate(data_path, degree=degree, alpha=alpha)
+                            st.success("Training complete")
+                            st.session_state['mvnl_metrics'] = m_metrics
+                            st.session_state['mvnl_artifacts'] = m_artifacts
+                            st.session_state['mvnl_plot'] = m_artifacts.get('plot_png')
+                            st.subheader("Model metrics (test)")
+                            st.write(m_metrics)
+                        except FileNotFoundError:
+                            st.error("housing.csv not found in project root.")
+                with st.expander("PCA/SVD settings", expanded=True):
+                    n_components = st.slider("n_components", min_value=1, max_value=50, value=5)
+                    svd_solver = st.selectbox("svd_solver", options=["auto", "full", "arpack", "randomized"])  # placeholder
+                    st.write({"n_components": n_components, "svd_solver": svd_solver})
 
             else:
                 st.info("Algorithm configuration will appear here.")
@@ -620,6 +709,47 @@ def main():
                             pred = model.predict(arr)[0]
                             st.success(f"Predicted median_house_value: ${pred:,.2f}")
                             st.write(f"Using model: intercept={art.get('intercept'):.4f}, slope={art.get('slope'):.4f}")
+                        except Exception as e:
+                            st.error(f"Prediction failed: {e}")
+
+            # Multivariate prediction UI
+            if selected_algo == "Multivariate Linear Regression":
+                st.markdown("### Multivariate Non-linear Model — Single prediction")
+                if "mvnl_artifacts" not in st.session_state:
+                    st.info("No multivariate model found. Run the model from Model Configuration or use Quick-run in Overview.")
+                else:
+                    mv = st.session_state['mvnl_artifacts']
+                    features = mv.get('numeric_features', [])
+                    cat_feats = mv.get('categorical_features', [])
+
+                    st.markdown("Provide input values for the features below (missing features will use dataset medians).")
+                    cols = st.columns(3)
+                    inputs = {}
+                    for i, f in enumerate(features):
+                        col = cols[i % 3]
+                        # reasonable default: median from training df
+                        df_ref = mv.get('df')
+                        default_val = df_ref[f].median() if f in df_ref.columns else 0.0
+                        inputs[f] = col.number_input(f, value=float(default_val))
+
+                    # categorical
+                    cat_inputs = {}
+                    for cf in cat_feats:
+                        df_ref = mv.get('df')
+                        choices = df_ref[cf].dropna().unique().tolist() if cf in df_ref.columns else []
+                        if choices:
+                            cat_inputs[cf] = st.selectbox(cf, options=choices)
+
+                    if st.button("Predict Multivariate 🔮"):
+                        try:
+                            import pandas as _pd
+                            row = {f: inputs[f] for f in features}
+                            for cf, val in cat_inputs.items():
+                                row[cf] = val
+                            x_df = _pd.DataFrame([row])
+                            model = mv.get('model_pipeline')
+                            pred = model.predict(x_df)[0]
+                            st.success(f"Predicted median_house_value: ${pred:,.2f}")
                         except Exception as e:
                             st.error(f"Prediction failed: {e}")
 
