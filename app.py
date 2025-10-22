@@ -843,14 +843,32 @@ def main():
                     
                     cols = st.columns(3)
                     with cols[0]:
-                        user_inputs['housing_median_age'] = st.number_input("housing_median_age", value=30.0, format="%.2f")
-                        user_inputs['total_rooms'] = st.number_input("total_rooms", value=2000.0, format="%.2f")
+                        user_inputs['housing_median_age'] = st.number_input(
+                            "Housing Median Age (years)", 
+                            min_value=1.0, max_value=100.0, value=30.0, step=1.0, format="%.1f"
+                        )
+                        user_inputs['total_rooms'] = st.number_input(
+                            "Total Rooms", 
+                            min_value=100.0, max_value=50000.0, value=2000.0, step=100.0, format="%.0f"
+                        )
                     with cols[1]:
-                        user_inputs['total_bedrooms'] = st.number_input("total_bedrooms", value=400.0, format="%.2f")
-                        user_inputs['population'] = st.number_input("population", value=1000.0, format="%.2f")
+                        user_inputs['total_bedrooms'] = st.number_input(
+                            "Total Bedrooms", 
+                            min_value=10.0, max_value=10000.0, value=400.0, step=50.0, format="%.0f"
+                        )
+                        user_inputs['population'] = st.number_input(
+                            "Population", 
+                            min_value=50.0, max_value=50000.0, value=1000.0, step=100.0, format="%.0f"
+                        )
                     with cols[2]:
-                        user_inputs['households'] = st.number_input("households", value=400.0, format="%.2f")
-                        user_inputs['median_income'] = st.number_input("median_income", value=3.5, format="%.4f")
+                        user_inputs['households'] = st.number_input(
+                            "Households", 
+                            min_value=10.0, max_value=10000.0, value=400.0, step=50.0, format="%.0f"
+                        )
+                        user_inputs['median_income'] = st.number_input(
+                            "Median Income (x$10k)", 
+                            min_value=0.5, max_value=15.0, value=3.5, step=0.5, format="%.2f"
+                        )
                     
                     st.write("##### Categorical Feature")
                     ocean_proximity_categories = ['<1H OCEAN', 'INLAND', 'ISLAND', 'NEAR BAY', 'NEAR OCEAN']
