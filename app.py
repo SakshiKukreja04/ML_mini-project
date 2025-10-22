@@ -27,6 +27,14 @@ except Exception as e:
     _MVNL_AVAILABLE = False
     _MVNL_IMPORT_ERROR = e
 
+try:
+    from algorithms import support_vector_machine
+    _SVM_AVAILABLE = True
+except Exception as e:
+    support_vector_machine = None
+    _SVM_AVAILABLE = False
+    _SVM_IMPORT_ERROR = e
+
 # -----------------------------
 # Header / Page Config
 # -----------------------------
@@ -129,6 +137,11 @@ def main():
                 st.session_state['mvnl_metrics'] = m_metrics
                 st.session_state['mvnl_artifacts'] = m_artifacts
                 st.session_state['mvnl_plot'] = m_artifacts.get('plot_png')
+            
+            elif selected_algo == "SVM":
+                st.info("Please go to the 'Model Configuration ⚙️' tab to tune and run the SVM model.")
+                st.session_state['last_run_algo'] = "SVM"
+            
             else:
                 st.warning(f"Selected algorithm not available or has missing dependencies: {selected_algo}")
         except FileNotFoundError:
@@ -345,6 +358,40 @@ def main():
                                     graph_placeholder.image(st.session_state.get('mvnl_actual_png'), use_container_width=True)
                                 else:
                                     graph_placeholder.info("Actual vs Predicted plot not available. Run the Multivariate model to generate test predictions.")
+                    
+                    elif selected_algo == "SVM" or st.session_state.get('last_run_algo') == "SVM":
+                        # SVM Visualization - Display all four plots
+                        if 'svm_artifacts' in st.session_state and _SVM_AVAILABLE:
+                            st.write("#### SVM Visualizations (Binary Classification: Affordable vs Not Affordable)")
+                            
+                            # Display plots in columns
+                            col_plot1, col_plot2 = st.columns(2)
+                            
+                            with col_plot1:
+                                st.write("##### Confusion Matrix")
+                                plot_bytes_cm = support_vector_machine.plot_results(st.session_state['svm_artifacts'], plot_type="confusion_matrix")
+                                st.image(plot_bytes_cm, use_container_width=True)
+                            
+                            with col_plot2:
+                                st.write("##### Decision Boundary (via PCA)")
+                                with st.spinner("Generating PCA plot..."):
+                                    plot_bytes_pca = support_vector_machine.plot_results(st.session_state['svm_artifacts'], plot_type="decision_boundary")
+                                    st.image(plot_bytes_pca, use_container_width=True)
+                            
+                            # Support Vectors plot (full width - the new plot you requested)
+                            st.write("##### Support Vectors with Margins & Decision Boundary")
+                            with st.spinner("Generating Support Vectors plot..."):
+                                plot_bytes_sv = support_vector_machine.plot_results(st.session_state['svm_artifacts'], plot_type="support_vectors_2d")
+                                st.image(plot_bytes_sv, use_container_width=True)
+                            
+                            # Learning curve gets full width
+                            st.write("##### Learning Curve")
+                            with st.spinner("Generating Learning Curve..."):
+                                plot_bytes_lc = support_vector_machine.plot_results(st.session_state['svm_artifacts'], plot_type="learning_curve")
+                                st.image(plot_bytes_lc, use_container_width=True)
+                        else:
+                            graph_placeholder.info("Run the SVM model from the 'Model Configuration' tab to see results.")
+                    
                     else:
                         # non-multivariate: keep existing scatter/residual/hist behavior
                         plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
@@ -404,6 +451,37 @@ def main():
                     mm_df = _pd.DataFrame.from_dict(mm, orient='index', columns=['value']).reset_index().rename(columns={'index':'metric'})
                     mm_df['value'] = mm_df['value'].apply(lambda x: round(x,4) if isinstance(x, float) else x)
                     st.table(mm_df)
+                
+                # Show SVM metrics if present
+                if "svm_artifacts" in st.session_state:
+                    st.markdown("---")
+                    st.markdown("**SVM (SVC) Classification Metrics**")
+                    import pandas as _pd
+                    
+                    # Display Accuracy and Best CV Score
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        acc = st.session_state['svm_metrics'].get('accuracy_score')
+                        if acc:
+                            st.metric("Test Accuracy", f"{acc:.2%}")
+                    with col_m2:
+                        best_score = st.session_state['svm_metrics'].get('best_score')
+                        if best_score:
+                            st.metric("Best CV Score", f"{best_score:.2%}")
+                    
+                    # Display Best Parameters
+                    st.write("**Best Parameters:**")
+                    best_params = st.session_state['svm_metrics'].get('best_params', {})
+                    st.json(best_params)
+                    
+                    # Display Classification Report
+                    report = st.session_state['svm_metrics'].get('classification_report')
+                    if report:
+                        st.write("**Classification Report:**")
+                        report_df = _pd.DataFrame(report).transpose()
+                        st.dataframe(report_df.round(3))
+                    
+                    st.write(f"**Model:** `{st.session_state['svm_artifacts'].get('model_params', 'N/A')}`")
 
         # Model Configuration Tab
         with tabs[1]:
@@ -524,9 +602,59 @@ def main():
 
             elif selected_algo == "SVM":
                 with st.expander("SVM settings", expanded=True):
-                    c_val = st.slider("C (regularization)", min_value=0.01, max_value=10.0, value=1.0)
-                    kernel = st.selectbox("Kernel", options=["rbf", "linear", "poly", "sigmoid"])  # placeholder
-                    st.write("C:", c_val, "kernel:", kernel)
+                    if not _SVM_AVAILABLE:
+                        st.error(f"Support Vector Machine module could not be loaded: {_SVM_IMPORT_ERROR}")
+                    else:
+                        st.info("This model uses pre-optimized parameters for fast training (~10 seconds instead of 3 minutes).")
+                        st.markdown("**Best Parameters (from previous GridSearch):**")
+                        st.write("- C: 100.0")
+                        st.write("- Kernel: rbf")
+                        st.write("- Gamma: scale")
+                        st.write("- Expected Accuracy: ~85%")
+
+                        if st.button("Run Support Vector Machine (Fast - Best Params)", key="run_svm_config"):
+                            with st.spinner("Training SVM with best parameters... This will take ~10 seconds."):
+                                file_path = os.path.join(os.getcwd(), "housing.csv")
+                                try:
+                                    # Use pre-defined best parameters (no GridSearch)
+                                    metrics, artifacts = support_vector_machine.train_and_evaluate(
+                                        file_path,
+                                        use_gridsearch=False,
+                                        best_params={'C': 100.0, 'gamma': 'scale', 'kernel': 'rbf'}
+                                    )
+                                    st.session_state['svm_metrics'] = metrics
+                                    st.session_state['svm_artifacts'] = artifacts
+                                    st.session_state['last_run_algo'] = "SVM"
+                                    st.success("SVM (SVC) model trained successfully with best parameters (C=100.0, kernel=rbf, gamma=scale)!")
+                                    
+                                    # Display metrics
+                                    import pandas as _pd
+                                    
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        acc = metrics.get('accuracy_score')
+                                        if acc:
+                                            st.metric("Test Set Accuracy", f"{acc:.2%}")
+                                    with col2:
+                                        best_score = metrics.get('best_score')
+                                        if best_score is not None:
+                                            st.metric("Best CV Score", f"{best_score:.2%}")
+                                        else:
+                                            st.metric("Best CV Score", "N/A (No GridSearch)")
+                                    
+                                    st.write("##### Best Parameters Found:")
+                                    st.json(metrics.get('best_params'))
+                                    
+                                    report = metrics.get('classification_report')
+                                    if report:
+                                        st.write("##### Classification Report")
+                                        report_df = _pd.DataFrame(report).transpose()
+                                        st.dataframe(report_df.round(3))
+                                except FileNotFoundError:
+                                    st.error("housing.csv not found in project root.")
+                                except Exception as e:
+                                    st.error(f"Training failed: {e}")
+                                    st.exception(e)
 
             elif selected_algo == "Random Forest":
                 with st.expander("Random Forest settings", expanded=True):
@@ -695,6 +823,74 @@ def main():
 
                     else:
                         st.info("No Decision Tree model available. Retrain the Decision Tree (Model Configuration tab) or use the retrain button above.")
+
+            elif selected_algo == "SVM":
+                st.markdown("### Predict with Support Vector Machine (SVC)")
+                if 'svm_artifacts' not in st.session_state:
+                    st.warning("Please train the SVM model on the 'Model Configuration' tab first.")
+                else:
+                    svm_artifacts = st.session_state['svm_artifacts']
+                    # Support both old 'model' and new 'pipeline' keys for backward compatibility
+                    model = svm_artifacts.get('pipeline') or svm_artifacts.get('model')
+                    scaler = svm_artifacts['scaler']
+                    feature_names = svm_artifacts['features']  # Full list of features after one-hot encoding
+                    
+                    st.info("Provide input values. The model uses engineered features (rooms_per_person, bedrooms_per_room, population_per_household).")
+                    
+                    # Define base features needed for engineering
+                    st.write("##### Base Features (for feature engineering)")
+                    user_inputs = {}
+                    
+                    cols = st.columns(3)
+                    with cols[0]:
+                        user_inputs['housing_median_age'] = st.number_input("housing_median_age", value=30.0, format="%.2f")
+                        user_inputs['total_rooms'] = st.number_input("total_rooms", value=2000.0, format="%.2f")
+                    with cols[1]:
+                        user_inputs['total_bedrooms'] = st.number_input("total_bedrooms", value=400.0, format="%.2f")
+                        user_inputs['population'] = st.number_input("population", value=1000.0, format="%.2f")
+                    with cols[2]:
+                        user_inputs['households'] = st.number_input("households", value=400.0, format="%.2f")
+                        user_inputs['median_income'] = st.number_input("median_income", value=3.5, format="%.4f")
+                    
+                    st.write("##### Categorical Feature")
+                    ocean_proximity_categories = ['<1H OCEAN', 'INLAND', 'ISLAND', 'NEAR BAY', 'NEAR OCEAN']
+                    user_inputs['ocean_proximity'] = st.selectbox(
+                        "Ocean Proximity",
+                        options=ocean_proximity_categories,
+                        index=0,
+                        key="svm_input_ocean"
+                    )
+                    
+                    if st.button("Predict SVM Class 🔮", key="predict_svm"):
+                        try:
+                            import pandas as _pd
+                            
+                            # Apply feature engineering (same as in training)
+                            df_input = _pd.DataFrame([user_inputs])
+                            df_input['rooms_per_person'] = df_input['total_rooms'] / df_input['population']
+                            df_input['bedrooms_per_room'] = df_input['total_bedrooms'] / df_input['total_rooms']
+                            df_input['population_per_household'] = df_input['population'] / df_input['households']
+                            
+                            # Drop the original columns (same as in training)
+                            df_input = df_input.drop(columns=['total_rooms', 'total_bedrooms', 'population', 'households'])
+                            
+                            # One-hot encode the categorical feature
+                            input_df_encoded = _pd.get_dummies(df_input, columns=['ocean_proximity'], drop_first=False)
+                            
+                            # Reindex to match the model's training columns
+                            input_df_final = input_df_encoded.reindex(columns=feature_names, fill_value=0)
+                            
+                            # Apply the saved scaler
+                            input_scaled = scaler.transform(input_df_final)
+                            
+                            # 5. Make prediction
+                            prediction = model.predict(input_scaled)
+                            
+                            st.success(f"Predicted Price Category: **{prediction[0]}**")
+                            
+                        except Exception as e:
+                            st.error(f"An error occurred during prediction: {e}")
+                            st.exception(e)  # Show full error details
 
             else:
                 # keep existing LR prediction UI
