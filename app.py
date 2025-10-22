@@ -56,7 +56,6 @@ def sidebar_controls(algorithms: List[str]):
 
         st.markdown(
             "Using bundled sample dataset. To use a different dataset, replace 'housing.csv' in the project root.\n\n"
-            "This app is a UI skeleton — ML logic will be plugged in later."
         )
 
         # No upload option — app uses the bundled sample dataset by default
@@ -64,7 +63,7 @@ def sidebar_controls(algorithms: List[str]):
         uploaded_file = None
 
         st.markdown("---")
-        st.markdown("Built with ❤️ • Streamlit UI skeleton")
+        st.markdown("Built with ❤️")
     return algo, dataset_mode, uploaded_file
 
 
@@ -99,64 +98,43 @@ def main():
     st.title("Machine Learning Dashboard 📊")
     st.markdown(f"### You selected: **{selected_algo}**")
 
-    st.markdown(
-        "---\n"
-        "This interface provides a clean layout for exploring datasets, configuring models, and making predictions."
-    )
+    st.markdown("Use the tabs to configure and run models, or use the Overview quick actions to run sample workflows.")
 
-    # If the Linear Regression module failed to import (usually missing matplotlib or sklearn), show guidance
-    if not _LR_AVAILABLE:
-        st.error(
-            "One or more optional dependencies failed to import (needed for algorithms).\n"
-            "Error: {}\n\n"
-            "To fix, install required packages: `pip install -r requirements.txt`\n"
-            "Then restart the app.".format(str(_LR_IMPORT_ERROR))
-        )
+    # Universal top-level Run Model button (runs the currently selected algorithm)
+    if st.button("Run Model"):
+        # Provide immediate feedback
+        st.info(f"Running {selected_algo}...")
+        try:
+            if selected_algo == "Linear Regression" and _LR_AVAILABLE:
+                data_path = os.path.join(os.getcwd(), "housing.csv")
+                metrics, artifacts = linear_regression.train_and_evaluate(data_path)
+                st.success("Linear Regression training complete")
+                st.session_state["latest_metrics"] = metrics
+                st.session_state["latest_plot_lr"] = linear_regression.plot_results(artifacts)
+                st.session_state["latest_artifacts"] = artifacts
 
-    # Quick actions: show a compact control on the main page when specific algorithms are selected
-    if selected_algo == "Linear Regression":
-        with st.expander("Quick actions — Linear Regression", expanded=False):
-            st.write("Run a quick linear regression using `median_income` → `median_house_value`.\n"
-                     "You can also run the model from the Model Configuration tab.")
+            elif selected_algo == "Decision Tree Classifier" and _DT_AVAILABLE:
+                data_path = os.path.join(os.getcwd(), "housing.csv")
+                dt_metrics, dt_artifacts = decision_tree.train_and_evaluate(data_path, max_depth=5)
+                st.success("Decision Tree training complete")
+                st.session_state["dt_metrics"] = dt_metrics
+                st.session_state["dt_artifacts"] = dt_artifacts
+                st.session_state["dt_confusion_png"] = decision_tree.plot_confusion_matrix(dt_artifacts)
+                st.session_state["dt_tree_png"] = decision_tree.plot_tree_image(dt_artifacts)
 
-            if not _LR_AVAILABLE:
-                st.warning("Linear Regression is unavailable because some dependencies failed to import.\n"
-                           "Run: `pip install -r requirements.txt` and restart the app.")
+            elif selected_algo == "Multivariate Linear Regression" and _MVNL_AVAILABLE:
+                data_path = os.path.join(os.getcwd(), "housing.csv")
+                m_metrics, m_artifacts = multivariate_nonlinear.train_and_evaluate(data_path)
+                st.success("Multivariate model training complete")
+                st.session_state['mvnl_metrics'] = m_metrics
+                st.session_state['mvnl_artifacts'] = m_artifacts
+                st.session_state['mvnl_plot'] = m_artifacts.get('plot_png')
             else:
-                if st.button("Run Linear Regression (quick)"):
-                    st.info("Training Linear Regression...")
-                    # prefer uploaded file if present, otherwise use bundled housing.csv
-                    if uploaded_file is not None:
-                        data_path = os.path.join(os.getcwd(), "uploaded_housing.csv")
-                        with open(data_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                    else:
-                        data_path = os.path.join(os.getcwd(), "housing.csv")
-
-                    try:
-                        metrics, artifacts = linear_regression.train_and_evaluate(data_path)
-                        st.success("Training complete")
-                        st.subheader("Performance Metrics")
-                        # Show intermediate info
-                        st.write(f"Records used (feature -> target): {len(artifacts['X_test']) + 0} test records")
-                        st.write(f"Train/test split: {len(artifacts['X_test'])} test records")
-                        st.write(f"Fitted line: {target_col if 'target_col' in locals() else 'median_house_value'} = {artifacts.get('intercept'):.4f} + ({artifacts.get('slope'):.4f} * median_income)")
-
-                        # Show metrics summary
-                        st.subheader("Performance Metrics (summary)")
-                        for k, v in metrics.items():
-                            if k == "MSE":
-                                st.write(f"{k}: {v:,.2f}")
-                            else:
-                                st.write(f"{k}: {v:.4f}")
-
-                        # Generate and store plot for Overview but do not display here
-                        png = linear_regression.plot_results(artifacts)
-                        st.session_state["latest_metrics"] = metrics
-                        st.session_state["latest_plot_lr"] = png
-                        st.session_state["latest_artifacts"] = artifacts
-                    except FileNotFoundError:
-                        st.error("Dataset not found. Place 'housing.csv' in the project root or upload a CSV.")
+                st.warning(f"Selected algorithm not available or has missing dependencies: {selected_algo}")
+        except FileNotFoundError:
+            st.error("housing.csv not found in project root.")
+        except Exception as e:
+            st.error(f"Training failed: {e}")
 
     # If the gallery toggle is enabled, show a grid of visualization placeholders
     # Quick actions for Decision Tree
@@ -202,9 +180,7 @@ def main():
                             st.write(f"Rows before: {prep.get('rows_before')}")
                             st.write(f"Rows after: {prep.get('rows_after')}")
 
-                        # Suggestions for improving performance
-                        with st.expander("Suggested preprocessing steps to improve accuracy", expanded=False):
-                            st.markdown("- Handle missing values (imputation)\n- Scale numeric features (StandardScaler/MinMax)\n- Encode categorical variables if present (OneHot/Ordinal)\n- Feature engineering (ratios, interactions)\n- Remove or cap outliers\n- Try class balancing (SMOTE/undersampling) if classes are imbalanced\n- Perform feature selection (recursive or model-based)")
+                        # Suggestions removed per user request
                     except FileNotFoundError:
                         st.error("housing.csv not found in project root.")
     if show_gallery:
@@ -263,24 +239,64 @@ def main():
 
             with col1:
                 st.markdown("#### Visualization")
+                # Quick-run button at the top (single entry point).
+                if selected_algo == "Multivariate Linear Regression" and _MVNL_AVAILABLE:
+                    if st.button("Run Multivariate (quick)", key="overview_mvnl_quick"):
+                        # Use session state flags to ensure messages render in the
+                        # placeholder below the button and above the visualization.
+                        st.session_state['mvnl_status'] = 'running'
+                        st.session_state['mvnl_status_msg'] = 'Running multivariate model (quick)...'
+                        try:
+                            data_path = os.path.join(os.getcwd(), "housing.csv")
+                            mv_metrics, mv_art = multivariate_nonlinear.train_and_evaluate(data_path)
+                            st.session_state['mvnl_metrics'] = mv_metrics
+                            st.session_state['mvnl_artifacts'] = mv_art
+                            st.session_state['mvnl_plot'] = mv_art.get('plot_png')
+                            try:
+                                st.session_state['mvnl_resid_png'] = multivariate_nonlinear.plot_residual_hist(mv_art)
+                            except Exception:
+                                st.session_state['mvnl_resid_png'] = None
+                            try:
+                                st.session_state['mvnl_actual_png'] = multivariate_nonlinear.plot_actual_vs_pred(mv_art)
+                            except Exception:
+                                st.session_state['mvnl_actual_png'] = None
+                            st.session_state['mvnl_status'] = 'complete'
+                            st.session_state['mvnl_status_msg'] = 'Multivariate quick run complete'
+                        except FileNotFoundError:
+                            st.session_state['mvnl_status'] = 'error'
+                            st.session_state['mvnl_status_msg'] = "housing.csv not found in project root."
+
+                # Message placeholder (between button and visualization)
+                message_placeholder = st.empty()
+                # Visualization placeholder (below status messages)
                 graph_placeholder = st.empty()
+
+                # Render status message if present
+                status = st.session_state.get('mvnl_status')
+                status_msg = st.session_state.get('mvnl_status_msg')
+                if status == 'running' and status_msg:
+                    message_placeholder.info(status_msg)
+                elif status == 'complete' and status_msg:
+                    message_placeholder.success(status_msg)
+                elif status == 'error' and status_msg:
+                    message_placeholder.error(status_msg)
                 # If Decision Tree artifacts exist or current selection is DT, show DT visuals
                 if (selected_algo == "Decision Tree Classifier" and "dt_artifacts" in st.session_state) or (
                     "dt_artifacts" in st.session_state
                 ):
-                    # Always offer heatmap as a visualization option; show guidance if no grid results exist
-                    dt_options = ["confusion_matrix", "tree"]
+                    # Always offer visualization options for Decision Tree
+                    dt_options = ["confusion_matrix", "heatmap", "tree"]
 
                     dt_choice = st.selectbox("DT visualization", options=dt_options, index=0)
                     if dt_choice == "confusion_matrix":
                         if "dt_confusion_png" in st.session_state:
-                            graph_placeholder.image(st.session_state["dt_confusion_png"], use_column_width=True)
+                            graph_placeholder.image(st.session_state["dt_confusion_png"], use_container_width=True)
                         else:
                             graph_placeholder.info("Confusion matrix not available yet. Run the Decision Tree model.")
                     elif dt_choice == "heatmap":
                         # Prefer stored heatmap bytes
                         if "dt_grid_heatmap_png" in st.session_state:
-                            graph_placeholder.image(st.session_state["dt_grid_heatmap_png"], use_column_width=True)
+                            graph_placeholder.image(st.session_state["dt_grid_heatmap_png"], use_container_width=True)
                         elif "dt_grid_info" in st.session_state:
                             # attempt to regenerate from stored cv_results
                             try:
@@ -289,7 +305,7 @@ def main():
                                     keys = list(cvr.get("params")[0].keys())
                                     if len(keys) >= 2:
                                         heat_png = decision_tree.plot_cv_heatmap(cvr, keys[0], keys[1])
-                                        graph_placeholder.image(heat_png, use_column_width=True)
+                                        graph_placeholder.image(heat_png, use_container_width=True)
                                     else:
                                         graph_placeholder.info("Heatmap unavailable: GridSearch used fewer than 2 tunable parameters.")
                                 else:
@@ -298,9 +314,9 @@ def main():
                                 graph_placeholder.error(f"Failed to generate heatmap: {e}")
                         else:
                             graph_placeholder.info("Heatmap not available. Run GridSearch first from Model Configuration.")
-                    else:
+                    elif dt_choice == "tree":
                         if "dt_tree_png" in st.session_state:
-                            graph_placeholder.image(st.session_state["dt_tree_png"], use_column_width=True)
+                            graph_placeholder.image(st.session_state["dt_tree_png"], use_container_width=True)
                         else:
                             graph_placeholder.info("Decision tree image not available yet. Run the Decision Tree model.")
                 else:
@@ -310,45 +326,25 @@ def main():
                         if not _MVNL_AVAILABLE:
                             st.warning("Multivariate module not available (missing dependencies).")
                         else:
-                            # Quick run from Overview
-                            if st.button("Run Multivariate (quick)"):
-                                st.info("Running multivariate model (quick)...")
-                                try:
-                                    data_path = os.path.join(os.getcwd(), "housing.csv")
-                                    mv_metrics, mv_art = multivariate_nonlinear.train_and_evaluate(data_path)
-                                    st.session_state['mvnl_metrics'] = mv_metrics
-                                    st.session_state['mvnl_artifacts'] = mv_art
-                                    st.session_state['mvnl_plot'] = mv_art.get('plot_png')
-                                    # try to create residual and actual-vs-pred plots
-                                    try:
-                                        st.session_state['mvnl_resid_png'] = multivariate_nonlinear.plot_residual_hist(mv_art)
-                                    except Exception:
-                                        st.session_state['mvnl_resid_png'] = None
-                                    try:
-                                        st.session_state['mvnl_actual_png'] = multivariate_nonlinear.plot_actual_vs_pred(mv_art)
-                                    except Exception:
-                                        st.session_state['mvnl_actual_png'] = None
-                                    st.success("Multivariate quick run complete")
-                                except FileNotFoundError:
-                                    st.error("housing.csv not found in project root.")
+                            # Quick run handled by the overview button above (single entry)
 
-                        plot_type = st.selectbox("Plot type", options=["multivariate_3d", "residual_hist", "actual_vs_pred"], index=0)
+                            plot_type = st.selectbox("Plot type", options=["multivariate_3d", "residual_hist", "actual_vs_pred"], index=0)
 
-                        if plot_type == "multivariate_3d":
-                            if "mvnl_plot" in st.session_state and st.session_state.get('mvnl_plot') is not None:
-                                graph_placeholder.image(st.session_state.get('mvnl_plot'), use_column_width=True)
+                            if plot_type == "multivariate_3d":
+                                if "mvnl_plot" in st.session_state and st.session_state.get('mvnl_plot') is not None:
+                                    graph_placeholder.image(st.session_state.get('mvnl_plot'), use_container_width=True)
+                                else:
+                                    graph_placeholder.info("3D plot not available. Run the Multivariate model from Model Configuration or click Run Multivariate (quick).")
+                            elif plot_type == "residual_hist":
+                                if "mvnl_resid_png" in st.session_state and st.session_state.get('mvnl_resid_png') is not None:
+                                    graph_placeholder.image(st.session_state.get('mvnl_resid_png'), use_container_width=True)
+                                else:
+                                    graph_placeholder.info("Residual histogram not available. Run the Multivariate model to generate test predictions.")
                             else:
-                                graph_placeholder.info("3D plot not available. Run the Multivariate model from Model Configuration or click Run Multivariate (quick).")
-                        elif plot_type == "residual_hist":
-                            if "mvnl_resid_png" in st.session_state and st.session_state.get('mvnl_resid_png') is not None:
-                                graph_placeholder.image(st.session_state.get('mvnl_resid_png'), use_column_width=True)
-                            else:
-                                graph_placeholder.info("Residual histogram not available. Run the Multivariate model to generate test predictions.")
-                        else:
-                            if "mvnl_actual_png" in st.session_state and st.session_state.get('mvnl_actual_png') is not None:
-                                graph_placeholder.image(st.session_state.get('mvnl_actual_png'), use_column_width=True)
-                            else:
-                                graph_placeholder.info("Actual vs Predicted plot not available. Run the Multivariate model to generate test predictions.")
+                                if "mvnl_actual_png" in st.session_state and st.session_state.get('mvnl_actual_png') is not None:
+                                    graph_placeholder.image(st.session_state.get('mvnl_actual_png'), use_container_width=True)
+                                else:
+                                    graph_placeholder.info("Actual vs Predicted plot not available. Run the Multivariate model to generate test predictions.")
                     else:
                         # non-multivariate: keep existing scatter/residual/hist behavior
                         plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
@@ -357,10 +353,10 @@ def main():
                             # Render chosen plot type from stored artifacts
                             art = st.session_state["latest_artifacts"]
                             png = linear_regression.plot_results(art, plot_type=plot_type)
-                            graph_placeholder.image(png, use_column_width=True)
+                            graph_placeholder.image(png, use_container_width=True)
                         elif "latest_plot_lr" in st.session_state:
                             # fallback to the previously generated default plot
-                            graph_placeholder.image(st.session_state["latest_plot_lr"], use_column_width=True)
+                            graph_placeholder.image(st.session_state["latest_plot_lr"], use_container_width=True)
                         else:
                             graph_placeholder.info("Graph Placeholder — Plotly charts will be placed here.")
 
@@ -384,17 +380,7 @@ def main():
                             metrics_placeholder.write(f"{k}: {v:.4f}")
                 else:
                     metrics_placeholder.write("Metrics will appear here once models run.")
-                # If decision tree metrics exist, show them as a table
-                if "dt_metrics" in st.session_state:
-                    dtm = st.session_state["dt_metrics"]
-                    st.markdown("---")
-                    st.markdown("**Decision Tree Classifier Metrics**")
-                    import pandas as _pd
-
-                    dt_df = _pd.DataFrame.from_dict(dtm, orient="index", columns=["value"]) \
-                        .reset_index().rename(columns={"index": "metric"})
-                    dt_df["value"] = dt_df["value"].apply(lambda x: round(x, 4) if isinstance(x, float) else x)
-                    st.table(dt_df)
+                # Decision Tree metrics intentionally not displayed in Overview (shown in Model Configuration instead)
 
                 if "dt_artifacts" in st.session_state:
                     dt_art = st.session_state["dt_artifacts"]
@@ -504,7 +490,7 @@ def main():
                                         heat_png = decision_tree.plot_cv_heatmap(grid_info["cv_results"], params[0], params[1])
                                         # store heatmap bytes so Overview can display it later without re-running plotting
                                         st.session_state["dt_grid_heatmap_png"] = heat_png
-                                        st.image(heat_png, caption="GridSearchCV heatmap (mean_test_score)", use_column_width=True)
+                                        st.image(heat_png, caption="GridSearchCV heatmap (mean_test_score)", use_container_width=True)
                                 except FileNotFoundError:
                                     st.error("housing.csv not found in project root.")
                         else:
@@ -515,7 +501,16 @@ def main():
                                     dt_metrics, dt_artifacts = decision_tree.train_and_evaluate(data_path, max_depth=max_depth)
                                     st.success("Decision Tree training complete")
                                     st.subheader("DT Metrics")
-                                    st.write(dt_metrics)
+                                    try:
+                                        import pandas as _pd
+                                        if isinstance(dt_metrics, dict):
+                                            dt_df = _pd.DataFrame.from_dict(dt_metrics, orient='index', columns=['value']).reset_index().rename(columns={'index':'metric'})
+                                            dt_df['value'] = dt_df['value'].apply(lambda x: round(x,4) if isinstance(x, float) else x)
+                                            st.table(dt_df)
+                                        else:
+                                            st.write(dt_metrics)
+                                    except Exception:
+                                        st.write(dt_metrics)
                                     # store artifacts for Overview visualization
                                     st.session_state["dt_metrics"] = dt_metrics
                                     st.session_state["dt_artifacts"] = dt_artifacts
@@ -552,10 +547,10 @@ def main():
                     st.write({"eps": eps, "min_samples": min_samples})
 
             elif selected_algo == "PCA/SVD":
-                with st.expander("PCA/SVD settings", expanded=True):
-                    n_components = st.slider("n_components", min_value=1, max_value=50, value=5)
-                    svd_solver = st.selectbox("svd_solver", options=["auto", "full", "arpack", "randomized"])  # placeholder
-                    st.write({"n_components": n_components, "svd_solver": svd_solver})
+                # PCA/SVD settings were mistakenly duplicated here inside the
+                # Multivariate Non-linear Regression block. Removed to keep
+                # PCA controls only under the PCA/SVD algorithm branch.
+                pass
             elif selected_algo == "Multivariate Linear Regression":
                 with st.expander("Multivariate Non-linear Regression settings", expanded=True):
                     degree = st.slider("Polynomial degree", min_value=1, max_value=4, value=2)
@@ -575,13 +570,20 @@ def main():
                             st.session_state['mvnl_artifacts'] = m_artifacts
                             st.session_state['mvnl_plot'] = m_artifacts.get('plot_png')
                             st.subheader("Model metrics (test)")
-                            st.write(m_metrics)
+                            try:
+                                import pandas as _pd
+                                if isinstance(m_metrics, dict):
+                                    mm_df = _pd.DataFrame.from_dict(m_metrics, orient='index', columns=['value']).reset_index().rename(columns={'index':'metric'})
+                                    mm_df['value'] = mm_df['value'].apply(lambda x: round(x,4) if isinstance(x, float) else x)
+                                    st.table(mm_df)
+                                else:
+                                    st.write(m_metrics)
+                            except Exception:
+                                # Fallback to plain write if something unexpected occurs
+                                st.write(m_metrics)
                         except FileNotFoundError:
                             st.error("housing.csv not found in project root.")
-                with st.expander("PCA/SVD settings", expanded=True):
-                    n_components = st.slider("n_components", min_value=1, max_value=50, value=5)
-                    svd_solver = st.selectbox("svd_solver", options=["auto", "full", "arpack", "randomized"])  # placeholder
-                    st.write({"n_components": n_components, "svd_solver": svd_solver})
+                # Removed stray PCA/SVD settings from inside the Multivariate block.
 
             else:
                 st.info("Algorithm configuration will appear here.")
