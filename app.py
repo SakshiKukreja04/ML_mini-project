@@ -54,6 +54,14 @@ except Exception as e:
     _KMEANS_AVAILABLE = False
     _KMEANS_IMPORT_ERROR = e
 
+try:
+    from algorithms import dbscan_clustering
+    _DBSCAN_AVAILABLE = True
+except Exception as e:
+    dbscan_clustering = None
+    _DBSCAN_AVAILABLE = False
+    _DBSCAN_IMPORT_ERROR = e
+
 # -----------------------------
 # Header / Page Config
 # -----------------------------
@@ -103,6 +111,7 @@ def main():
         "Support Vector Machine",
         "Ensemble Learning (Bagging/Boosting)",
         "K-Means Clustering",
+        "DBSCAN Clustering",
         "PCA/SVD",
     ]
 
@@ -210,6 +219,28 @@ def main():
                             st.success("✅ K-Means clustering analysis complete!")
                         except Exception as e:
                             st.error(f"K-Means clustering failed: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+            
+            elif selected_algo == "DBSCAN Clustering":
+                if not _DBSCAN_AVAILABLE:
+                    st.warning(f"DBSCAN module not available: {_DBSCAN_IMPORT_ERROR}")
+                else:
+                    data_path = os.path.join(os.getcwd(), "housing.csv")
+                    with st.spinner("Running DBSCAN clustering analysis (optimized parameters)..."):
+                        try:
+                            # Run DBSCAN analysis with pre-optimized parameters
+                            results = dbscan_clustering.run_dbscan_analysis(
+                                data_path=data_path,
+                                optimized_under7=True,  # Use pre-optimized parameters (eps=0.16, min_samples=14)
+                                save_plots=False,
+                                log_params=True
+                            )
+                            st.session_state['dbscan_results'] = results
+                            st.session_state['last_run_algo'] = "DBSCAN Clustering"
+                            st.success(f"✅ DBSCAN clustering complete! Found {results['n_clusters']} clusters (eps={results['eps']:.2f}, min_samples={results['min_samples']}) with silhouette score: {results['silhouette']:.4f}")
+                        except Exception as e:
+                            st.error(f"DBSCAN clustering failed: {e}")
                             import traceback
                             st.code(traceback.format_exc())
             
@@ -883,6 +914,155 @@ def main():
                             - **Inertia**: Lower is better (compact clusters)
                             """)
                     
+                    elif selected_algo == "DBSCAN Clustering" or st.session_state.get('last_run_algo') == "DBSCAN Clustering":
+                        # DBSCAN Clustering Visualization
+                        if 'dbscan_results' not in st.session_state:
+                            graph_placeholder.info("Run the DBSCAN clustering analysis from the 'Model Configuration' tab to see results.")
+                        else:
+                            results = st.session_state['dbscan_results']
+                            
+                            st.write("#### DBSCAN Clustering Analysis")
+                            # Show mode if available
+                            mode_display = results.get('mode', 'standard').replace('_', ' ').title()
+                            st.write(f"**Density-Based Spatial Clustering** ({mode_display} Mode)")
+                            
+                            # Display parameters used
+                            st.caption(f"Parameters: eps={results['eps']:.4f}, min_samples={results['min_samples']}")
+                            
+                            # Metrics display
+                            col1, col2, col3, col4 = st.columns(4)
+                            col1.metric("Clusters", results['n_clusters'])
+                            col2.metric("Noise Points", f"{results['n_noise']:,}")
+                            col3.metric("Noise Ratio", f"{results['noise_ratio']:.1f}%")
+                            if results['silhouette']:
+                                col4.metric("Silhouette", f"{results['silhouette']:.4f}")
+                            else:
+                                col4.metric("Silhouette", "N/A")
+                            
+                            st.divider()
+                            
+                            # Visualization selector - include Core/Border/Noise if available
+                            viz_options = ["Model Configuration", "Cluster Map (Geographic)", "Cluster Profiles"]
+                            
+                            # Add Core/Border/Noise visualization if using optimized mode
+                            if 'core_border_noise_png' in results:
+                                viz_options.insert(2, "Core/Border/Noise Points")
+                            
+                            # Add K-Distance plot if available
+                            if 'k_distance_plot_png' in results or 'dbscan_eps_results' in st.session_state:
+                                viz_options.append("K-Distance Plot")
+                            
+                            viz_type = st.selectbox(
+                                "Select Visualization",
+                                options=viz_options,
+                                index=0
+                            )
+                            
+                            st.write(f"##### {viz_type}")
+                            
+                            with st.spinner(f"Generating {viz_type}..."):
+                                if viz_type == "Model Configuration":
+                                    if 'model_config_png' in results:
+                                        st.image(results['model_config_png'], use_container_width=True)
+                                        
+                                        st.info("""
+                                        ⚙️ **Model Configuration Overview:**
+                                        - **PCA Variance**: Shows how much information each component captures
+                                        - **Feature Weights**: Priority given to different features (geographic > economic > demographic)
+                                        - **DBSCAN Parameters**: Neighborhood radius (eps) and minimum samples
+                                        - **Pipeline Workflow**: Complete data processing flow from raw data to clusters
+                                        - **Quality Metrics**: Silhouette score, noise ratio, and cluster count assessment
+                                        
+                                        This view helps you understand exactly how the model processes your data!
+                                        """)
+                                    else:
+                                        st.warning("Model configuration visualization not available.")
+                                
+                                elif viz_type == "Cluster Map (Geographic)":
+                                    st.image(results['cluster_map_png'], use_container_width=True)
+                                    
+                                    st.info("""
+                                    🗺️ **Geographic Clustering:**
+                                    - Colored points: Dense regions (clusters)
+                                    - Gray X marks: Noise points (outliers/sparse areas)
+                                    - DBSCAN identifies naturally dense geographic areas
+                                    """)
+                                
+                                elif viz_type == "Core/Border/Noise Points":
+                                    if 'core_border_noise_png' in results:
+                                        st.image(results['core_border_noise_png'], use_container_width=True)
+                                        
+                                        st.info("""
+                                        🎯 **Point Type Classification:**
+                                        - 🟢 **Core Points** (circles): Dense cluster centers with ≥min_samples neighbors
+                                        - 🟡 **Border Points** (X marks): Edge points within eps of core points
+                                        - ⚫ **Noise Points** (dots): Outliers not belonging to any cluster
+                                        
+                                        This visualization shows the internal structure of DBSCAN clustering!
+                                        """)
+                                    else:
+                                        st.warning("Core/Border/Noise visualization not available for this mode.")
+                                
+                                elif viz_type == "Cluster Profiles":
+                                    st.image(results['cluster_profile_png'], use_container_width=True)
+                                    
+                                    st.info("""
+                                    📊 **Feature Distribution:**
+                                    - Shows how features vary across clusters
+                                    - Helps understand what makes each cluster unique
+                                    - Useful for market segmentation insights
+                                    """)
+                                
+                                elif viz_type == "K-Distance Plot":
+                                    # Try to get from results first, then from session state
+                                    k_plot_png = results.get('k_distance_plot_png')
+                                    if k_plot_png:
+                                        st.image(k_plot_png, use_container_width=True)
+                                    elif 'dbscan_eps_results' in st.session_state:
+                                        st.image(st.session_state['dbscan_eps_results']['plot_png'], use_container_width=True)
+                                    else:
+                                        st.warning("K-Distance plot not available.")
+                                    
+                                    st.info("""
+                                    📈 **Elbow Detection:**
+                                    - Left side: Points in dense regions
+                                    - Right side: Sparse/outlier points
+                                    - Elbow point: Optimal eps parameter
+                                    """)
+                            
+                            # Cluster summary table
+                            st.divider()
+                            st.write("##### 🔍 Cluster Characteristics")
+                            
+                            if results['summary_df'] is not None and len(results['summary_df']) > 0:
+                                st.dataframe(results['summary_df'], use_container_width=True, hide_index=True)
+                            else:
+                                st.warning("No clusters found (all points are noise). Try adjusting eps or min_samples.")
+                            
+                            # Interpretation guide
+                            st.divider()
+                            st.info("""
+                            💡 **DBSCAN vs K-Means:**
+                            
+                            **DBSCAN (Density-Based):**
+                            - ✅ Finds clusters of arbitrary shape
+                            - ✅ Automatically detects outliers
+                            - ✅ No need to specify number of clusters
+                            - ⚠️ Sensitive to eps and min_samples parameters
+                            
+                            **K-Means (Centroid-Based):**
+                            - ✅ Finds spherical clusters efficiently
+                            - ✅ Works well with evenly-sized clusters
+                            - ⚠️ Must specify k in advance
+                            - ⚠️ Sensitive to outliers
+                            
+                            **Use DBSCAN when:**
+                            - Your data has varying cluster densities
+                            - You want to identify outliers/anomalies
+                            - Cluster shapes are irregular or non-spherical
+                            - You don't know the number of clusters beforehand
+                            """)
+                    
                     else:
                         # non-multivariate: keep existing scatter/residual/hist behavior
                         plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
@@ -1313,6 +1493,190 @@ def main():
                                 import traceback
                                 st.exception(e)
 
+            elif selected_algo == "DBSCAN Clustering":
+                st.subheader("DBSCAN Clustering Settings")
+                if not _DBSCAN_AVAILABLE:
+                    st.error(f"DBSCAN module could not be loaded: {_DBSCAN_IMPORT_ERROR}")
+                else:
+                    st.info("DBSCAN is a density-based clustering algorithm that identifies dense regions and outliers in geographic data.")
+                    
+                    file_path = os.path.join(os.getcwd(), "housing.csv")
+                    
+                    # Two-step process
+                    st.write("#### 📊 Step 1: Find Optimal Eps Parameter")
+                    st.markdown("""
+                    The **eps** parameter defines the maximum distance between two samples for them to be considered in the same neighborhood.
+                    Use the k-distance plot to identify the optimal eps value (the "elbow" in the curve).
+                    """)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        min_samples_step1 = st.number_input(
+                            "Min Samples (for eps detection)", 
+                            min_value=2, 
+                            max_value=20, 
+                            value=5,
+                            help="Minimum number of points to form a dense region"
+                        )
+                    
+                    with col2:
+                        if st.button("🔍 Find Optimal Eps", key="find_eps_button"):
+                            with st.spinner("Computing k-distance plot..."):
+                                try:
+                                    # Load data (now returns 5 values including pca)
+                                    X_scaled, df_full, feature_names, scaler, pca = dbscan_clustering.load_data(file_path)
+                                    
+                                    # Find optimal eps
+                                    eps_results = dbscan_clustering.find_optimal_eps(
+                                        X_scaled, 
+                                        min_samples=min_samples_step1,
+                                        save_plot=False
+                                    )
+                                    
+                                    st.session_state['dbscan_eps_results'] = eps_results
+                                    st.session_state['dbscan_data'] = {
+                                        'X_scaled': X_scaled,
+                                        'df_full': df_full,
+                                        'feature_names': feature_names
+                                    }
+                                    
+                                    st.success(f"✅ Suggested eps: {eps_results['suggested_eps']:.4f}")
+                                    
+                                except Exception as e:
+                                    st.error(f"Error finding optimal eps: {e}")
+                                    import traceback
+                                    st.exception(e)
+                    
+                    # Display k-distance plot if available
+                    if 'dbscan_eps_results' in st.session_state:
+                        st.write("##### K-Distance Plot")
+                        st.image(st.session_state['dbscan_eps_results']['plot_png'], use_container_width=True)
+                        
+                        suggested_eps = st.session_state['dbscan_eps_results']['suggested_eps']
+                        st.info(f"💡 **Recommended eps value:** {suggested_eps:.4f}")
+                    
+                    st.divider()
+                    
+                    # Step 2: Run DBSCAN with chosen parameters
+                    st.write("#### 🎯 Step 2: Run DBSCAN Clustering")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        # Pre-fill with suggested eps if available
+                        default_eps = st.session_state.get('dbscan_eps_results', {}).get('suggested_eps', 0.5)
+                        eps_input = st.number_input(
+                            "Eps (neighborhood radius)",
+                            min_value=0.01,
+                            max_value=10.0,
+                            value=float(default_eps),
+                            format="%.4f",
+                            help="Maximum distance between two samples in the same neighborhood"
+                        )
+                    
+                    with col2:
+                        min_samples_input = st.number_input(
+                            "Min Samples",
+                            min_value=2,
+                            max_value=50,
+                            value=min_samples_step1,
+                            help="Minimum points to form a dense region"
+                        )
+                    
+                    # Show previous results if available
+                    if 'dbscan_results' in st.session_state:
+                        st.success("✅ DBSCAN analysis previously completed")
+                        results = st.session_state['dbscan_results']
+                        
+                        with st.expander("View Previous Results Summary", expanded=False):
+                            col_a, col_b, col_c = st.columns(3)
+                            col_a.metric("Clusters Found", results['n_clusters'])
+                            col_b.metric("Noise Points", f"{results['n_noise']:,}")
+                            col_c.metric("Noise Ratio", f"{results['noise_ratio']:.1f}%")
+                    
+                    if st.button("🚀 Run DBSCAN Clustering", key="run_dbscan_config", type="primary"):
+                        with st.spinner("Running DBSCAN clustering analysis..."):
+                            try:
+                                # Use cached data if available, otherwise load
+                                if 'dbscan_data' in st.session_state:
+                                    X_scaled = st.session_state['dbscan_data']['X_scaled']
+                                    df_full = st.session_state['dbscan_data']['df_full']
+                                    feature_names = st.session_state['dbscan_data']['feature_names']
+                                else:
+                                    # Load data (now returns 5 values including pca)
+                                    X_scaled, df_full, feature_names, scaler, pca = dbscan_clustering.load_data(file_path)
+                                
+                                # Run DBSCAN
+                                dbscan_results = dbscan_clustering.run_dbscan(X_scaled, eps_input, min_samples_input)
+                                
+                                # Add labels to dataframe
+                                df_full['cluster'] = dbscan_results['labels']
+                                
+                                # Summarize clusters
+                                summary_df = dbscan_clustering.summarize_clusters(df_full, feature_names)
+                                
+                                # Create visualizations
+                                cluster_map_png = dbscan_clustering.plot_results(
+                                    'cluster_map',
+                                    data=X_scaled,
+                                    labels=dbscan_results['labels'],
+                                    df=df_full,
+                                    feature_names=feature_names,
+                                    eps=eps_input,
+                                    min_samples=min_samples_input
+                                )
+                                
+                                cluster_profile_png = dbscan_clustering.plot_results(
+                                    'cluster_profile',
+                                    labels=dbscan_results['labels'],
+                                    df=df_full,
+                                    feature_names=feature_names
+                                )
+                                
+                                # Store results
+                                results = {
+                                    'X_scaled': X_scaled,
+                                    'df_full': df_full,
+                                    'feature_names': feature_names,
+                                    'eps': eps_input,
+                                    'min_samples': min_samples_input,
+                                    'model': dbscan_results['model'],
+                                    'labels': dbscan_results['labels'],
+                                    'n_clusters': dbscan_results['n_clusters'],
+                                    'n_noise': dbscan_results['n_noise'],
+                                    'noise_ratio': dbscan_results['noise_ratio'],
+                                    'silhouette': dbscan_results['silhouette'],
+                                    'core_sample_indices': dbscan_results['core_sample_indices'],
+                                    'summary_df': summary_df,
+                                    'cluster_map_png': cluster_map_png,
+                                    'cluster_profile_png': cluster_profile_png
+                                }
+                                
+                                st.session_state['dbscan_results'] = results
+                                st.session_state['last_run_algo'] = "DBSCAN Clustering"
+                                
+                                st.success("✅ DBSCAN clustering complete!")
+                                
+                                # Display metrics
+                                st.write("#### Clustering Results")
+                                col1, col2, col3, col4 = st.columns(4)
+                                col1.metric("Clusters", results['n_clusters'])
+                                col2.metric("Noise Points", f"{results['n_noise']:,}")
+                                col3.metric("Noise Ratio", f"{results['noise_ratio']:.1f}%")
+                                if results['silhouette']:
+                                    col4.metric("Silhouette Score", f"{results['silhouette']:.4f}")
+                                else:
+                                    col4.metric("Silhouette Score", "N/A")
+                                
+                                # Display cluster summary
+                                if summary_df is not None and len(summary_df) > 0:
+                                    st.write("##### Cluster Summary")
+                                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                                
+                            except Exception as e:
+                                st.error(f"DBSCAN clustering failed: {e}")
+                                import traceback
+                                st.exception(e)
+
             elif selected_algo == "K-Means":
                 with st.expander("K-Means settings", expanded=True):
                     n_clusters = st.slider("n_clusters", min_value=2, max_value=50, value=8)
@@ -1654,6 +2018,51 @@ def main():
                                 st.error(f"An error occurred during prediction: {e}")
                                 st.exception(e)  # Show full error details
 
+            # DBSCAN Clustering - Analytical Only
+            elif selected_algo == "DBSCAN Clustering":
+                st.markdown("### DBSCAN Clustering — Analytical (No Prediction)")
+                
+                st.info("""
+                ℹ️ **DBSCAN is an analytical clustering algorithm, not a predictive model.**
+                
+                **Why DBSCAN doesn't support prediction:**
+                - DBSCAN identifies dense regions in **existing data**
+                - It doesn't create a model that generalizes to new points
+                - Each clustering run is specific to the dataset analyzed
+                - New points would require re-running the entire algorithm
+                
+                **For predictive clustering, use:**
+                - **K-Means Clustering** - Assigns new points to nearest centroid
+                - **Decision Tree/Random Forest** - Predicts specific categories
+                
+                **DBSCAN is best for:**
+                - Exploratory data analysis
+                - Outlier/anomaly detection
+                - Identifying dense geographic regions
+                - Understanding spatial patterns in your dataset
+                """)
+                
+                if 'dbscan_results' in st.session_state:
+                    st.divider()
+                    st.write("#### Current Analysis Summary")
+                    
+                    results = st.session_state['dbscan_results']
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Clusters Found", results['n_clusters'])
+                    col2.metric("Noise Points", f"{results['n_noise']:,}")
+                    col3.metric("Noise Ratio", f"{results['noise_ratio']:.1f}%")
+                    
+                    st.write("**Parameters Used:**")
+                    st.write(f"- Eps: {results['eps']:.4f}")
+                    st.write(f"- Min Samples: {results['min_samples']}")
+                    st.write(f"- Features: {', '.join(results['feature_names'])}")
+                    
+                    st.divider()
+                    st.success("💡 To analyze your clusters, go to the 'Overview / Visualization' tab!")
+                else:
+                    st.warning("No DBSCAN analysis found. Run the analysis from Model Configuration first.")
+            
             # K-Means Clustering prediction UI
             elif selected_algo == "K-Means Clustering":
                 st.markdown("### K-Means Clustering — Assign to Cluster")
