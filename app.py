@@ -46,6 +46,14 @@ except Exception as e:
     _ENSEMBLE_AVAILABLE = False
     _ENSEMBLE_IMPORT_ERROR = e
 
+try:
+    from algorithms import kmeans
+    _KMEANS_AVAILABLE = True
+except Exception as e:
+    kmeans = None
+    _KMEANS_AVAILABLE = False
+    _KMEANS_IMPORT_ERROR = e
+
 # -----------------------------
 # Header / Page Config
 # -----------------------------
@@ -94,7 +102,7 @@ def main():
         "Decision Tree Classifier",
         "Support Vector Machine",
         "Ensemble Learning (Bagging/Boosting)",
-        "DBSCAN/K-Means Clustering",
+        "K-Means Clustering",
         "PCA/SVD",
     ]
 
@@ -181,6 +189,29 @@ def main():
                         st.success("✅ Models trained successfully!")
                     else:
                         st.error(f"Error: {metrics['single_tree']['error']}")
+            
+            elif selected_algo == "K-Means Clustering":
+                if not _KMEANS_AVAILABLE:
+                    st.warning(f"K-Means module not available: {_KMEANS_IMPORT_ERROR}")
+                else:
+                    data_path = os.path.join(os.getcwd(), "housing.csv")
+                    with st.spinner("Running K-Means clustering analysis..."):
+                        try:
+                            # Run K-Means analysis with default parameters
+                            results = kmeans.run_kmeans_analysis(
+                                data_path=data_path,
+                                k_range=range(2, 11),
+                                optimal_k=None,  # Auto-detect
+                                save_plots=False,
+                                output_dir='output'
+                            )
+                            st.session_state['kmeans_results'] = results
+                            st.session_state['last_run_algo'] = "K-Means Clustering"
+                            st.success("✅ K-Means clustering analysis complete!")
+                        except Exception as e:
+                            st.error(f"K-Means clustering failed: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
             
             else:
                 st.warning(f"Selected algorithm not available or has missing dependencies: {selected_algo}")
@@ -572,6 +603,286 @@ def main():
                                 plot_fi_rf = plot_results_ensemble(artifacts, 'random_forest', 'feature_importance')
                                 st.image(plot_fi_rf, use_container_width=True)
                     
+                    elif selected_algo == "K-Means Clustering" or st.session_state.get('last_run_algo') == "K-Means Clustering":
+                        # K-Means Clustering Visualization
+                        if 'kmeans_results' not in st.session_state:
+                            graph_placeholder.info("Run the K-Means clustering analysis from the 'Model Configuration' tab to see results.")
+                        else:
+                            results = st.session_state['kmeans_results']
+                            
+                            st.write("#### K-Means Clustering Analysis")
+                            st.write(f"**Optimal Clusters (k):** {results['optimal_k']}")
+                            
+                            # Metrics display
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Optimal k", results['optimal_k'])
+                            col2.metric("Silhouette Score", f"{results['final_silhouette']:.4f}")
+                            col3.metric("Inertia", f"{results['final_inertia']:,.0f}")
+                            
+                            st.divider()
+                            
+                            # Visualization selector
+                            viz_type = st.selectbox(
+                                "Select Visualization",
+                                options=[
+                                    "Elbow Curve",
+                                    "Silhouette Analysis", 
+                                    "Cluster Scatter (PCA)",
+                                    "Cluster Distribution",
+                                    "Comparison with Supervised"
+                                ],
+                                index=2
+                            )
+                            
+                            st.write(f"##### {viz_type}")
+                            
+                            with st.spinner(f"Generating {viz_type}..."):
+                                if viz_type == "Elbow Curve":
+                                    # Generate elbow curve
+                                    import matplotlib.pyplot as plt
+                                    import io
+                                    
+                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                    k_range = results['k_range']
+                                    inertias = results['inertias']
+                                    optimal_k = results['optimal_k']
+                                    
+                                    ax.plot(list(k_range), inertias, 'bo-', linewidth=2, markersize=8)
+                                    ax.axvline(x=optimal_k, color='red', linestyle='--', linewidth=2, 
+                                              label=f'Optimal k = {optimal_k}')
+                                    ax.set_xlabel('Number of Clusters (k)', fontsize=12, fontweight='bold')
+                                    ax.set_ylabel('Inertia (Within-Cluster Sum of Squares)', fontsize=12, fontweight='bold')
+                                    ax.set_title('Elbow Method for Optimal k', fontsize=14, fontweight='bold')
+                                    ax.legend(fontsize=11)
+                                    ax.grid(True, alpha=0.3)
+                                    
+                                    elbow_idx = optimal_k - k_range.start
+                                    ax.annotate(f'Elbow\n({optimal_k}, {inertias[elbow_idx]:,.0f})',
+                                              xy=(optimal_k, inertias[elbow_idx]),
+                                              xytext=(optimal_k + 1, inertias[elbow_idx] + (max(inertias) - min(inertias)) * 0.1),
+                                              arrowprops=dict(arrowstyle='->', color='red', lw=2),
+                                              fontsize=10, fontweight='bold', color='red')
+                                    
+                                    plt.tight_layout()
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                                    buf.seek(0)
+                                    st.image(buf, use_container_width=True)
+                                    plt.close(fig)
+                                
+                                elif viz_type == "Silhouette Analysis":
+                                    # Generate silhouette analysis
+                                    import matplotlib.pyplot as plt
+                                    import io
+                                    
+                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                    k_range = results['k_range']
+                                    silhouette_scores = results['silhouette_scores']
+                                    optimal_k = results['optimal_k']
+                                    
+                                    ax.plot(list(k_range), silhouette_scores, 'go-', linewidth=2, markersize=8)
+                                    ax.axvline(x=optimal_k, color='red', linestyle='--', linewidth=2,
+                                              label=f'Optimal k = {optimal_k}')
+                                    ax.set_xlabel('Number of Clusters (k)', fontsize=12, fontweight='bold')
+                                    ax.set_ylabel('Silhouette Score', fontsize=12, fontweight='bold')
+                                    ax.set_title('Silhouette Analysis', fontsize=14, fontweight='bold')
+                                    ax.legend(fontsize=11)
+                                    ax.grid(True, alpha=0.3)
+                                    
+                                    best_silhouette_idx = np.argmax(silhouette_scores)
+                                    best_k = k_range.start + best_silhouette_idx
+                                    ax.annotate(f'Best\n({best_k}, {silhouette_scores[best_silhouette_idx]:.3f})',
+                                              xy=(best_k, silhouette_scores[best_silhouette_idx]),
+                                              xytext=(best_k + 1, silhouette_scores[best_silhouette_idx] - 0.05),
+                                              arrowprops=dict(arrowstyle='->', color='green', lw=2),
+                                              fontsize=10, fontweight='bold', color='green')
+                                    
+                                    plt.tight_layout()
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                                    buf.seek(0)
+                                    st.image(buf, use_container_width=True)
+                                    plt.close(fig)
+                                
+                                elif viz_type == "Cluster Scatter (PCA)":
+                                    # Generate cluster scatter plot
+                                    import matplotlib.pyplot as plt
+                                    from sklearn.decomposition import PCA
+                                    import io
+                                    
+                                    X_scaled = results['X_scaled']
+                                    cluster_labels = results['cluster_labels']
+                                    optimal_k = results['optimal_k']
+                                    
+                                    # Use PCA to reduce to 2D
+                                    pca = PCA(n_components=2, random_state=42)
+                                    X_pca = pca.fit_transform(X_scaled)
+                                    
+                                    fig, ax = plt.subplots(figsize=(12, 8))
+                                    
+                                    # Plot each cluster
+                                    colors = plt.cm.tab10(np.linspace(0, 1, optimal_k))
+                                    for cluster_id in range(optimal_k):
+                                        cluster_mask = cluster_labels == cluster_id
+                                        ax.scatter(X_pca[cluster_mask, 0], X_pca[cluster_mask, 1],
+                                                 c=[colors[cluster_id]], label=f'Cluster {cluster_id}',
+                                                 alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
+                                    
+                                    # Project and plot centroids
+                                    centroids_pca = pca.transform(results['centroids'])
+                                    ax.scatter(centroids_pca[:, 0], centroids_pca[:, 1],
+                                             c='red', marker='X', s=300, edgecolors='black', linewidth=2,
+                                             label='Centroids', zorder=5)
+                                    
+                                    ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)', 
+                                                 fontsize=12, fontweight='bold')
+                                    ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)', 
+                                                 fontsize=12, fontweight='bold')
+                                    ax.set_title(f'K-Means Clusters (k={optimal_k}) - PCA Visualization', 
+                                                fontsize=14, fontweight='bold')
+                                    ax.legend(fontsize=9, loc='best')
+                                    ax.grid(True, alpha=0.3)
+                                    
+                                    plt.tight_layout()
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                                    buf.seek(0)
+                                    st.image(buf, use_container_width=True)
+                                    plt.close(fig)
+                                
+                                elif viz_type == "Cluster Distribution":
+                                    # Generate cluster distribution bar chart
+                                    import matplotlib.pyplot as plt
+                                    import io
+                                    
+                                    cluster_labels = results['cluster_labels']
+                                    optimal_k = results['optimal_k']
+                                    
+                                    unique, counts = np.unique(cluster_labels, return_counts=True)
+                                    colors = plt.cm.tab10(np.linspace(0, 1, optimal_k))
+                                    
+                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                    bars = ax.bar(unique, counts, color=colors[:optimal_k], edgecolor='black', linewidth=1.5)
+                                    
+                                    # Add count labels
+                                    for bar, count in zip(bars, counts):
+                                        height = bar.get_height()
+                                        ax.text(bar.get_x() + bar.get_width()/2., height,
+                                              f'{count:,}\n({count/len(cluster_labels)*100:.1f}%)',
+                                              ha='center', va='bottom', fontsize=10, fontweight='bold')
+                                    
+                                    ax.set_xlabel('Cluster ID', fontsize=12, fontweight='bold')
+                                    ax.set_ylabel('Number of Samples', fontsize=12, fontweight='bold')
+                                    ax.set_title('Cluster Size Distribution', fontsize=14, fontweight='bold')
+                                    ax.set_xticks(unique)
+                                    ax.grid(True, alpha=0.3, axis='y')
+                                    
+                                    plt.tight_layout()
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                                    buf.seek(0)
+                                    st.image(buf, use_container_width=True)
+                                    plt.close(fig)
+                                
+                                elif viz_type == "Comparison with Supervised":
+                                    # Generate comparison plot
+                                    import matplotlib.pyplot as plt
+                                    from sklearn.decomposition import PCA
+                                    from sklearn.preprocessing import LabelEncoder
+                                    import io
+                                    
+                                    X_scaled = results['X_scaled']
+                                    cluster_labels = results['cluster_labels']
+                                    y = results['y']
+                                    optimal_k = results['optimal_k']
+                                    
+                                    # PCA for visualization
+                                    pca = PCA(n_components=2, random_state=42)
+                                    X_pca = pca.fit_transform(X_scaled)
+                                    
+                                    # Encode true labels
+                                    label_encoder = LabelEncoder()
+                                    y_encoded = label_encoder.fit_transform(y)
+                                    
+                                    # Create side-by-side comparison
+                                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+                                    
+                                    # Left: True labels
+                                    scatter1 = ax1.scatter(X_pca[:, 0], X_pca[:, 1], c=y_encoded, 
+                                                         cmap='viridis', alpha=0.6, s=50, 
+                                                         edgecolors='black', linewidth=0.5)
+                                    centroids_pca = pca.transform(results['centroids'])
+                                    ax1.scatter(centroids_pca[:, 0], centroids_pca[:, 1],
+                                              c='red', marker='X', s=300, edgecolors='black', linewidth=2,
+                                              label='K-Means Centroids', zorder=5)
+                                    
+                                    ax1.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)', 
+                                                  fontsize=11, fontweight='bold')
+                                    ax1.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)', 
+                                                  fontsize=11, fontweight='bold')
+                                    ax1.set_title('True Labels (Supervised)', fontsize=13, fontweight='bold')
+                                    ax1.legend(fontsize=9)
+                                    ax1.grid(True, alpha=0.3)
+                                    
+                                    cbar1 = plt.colorbar(scatter1, ax=ax1)
+                                    cbar1.set_label('Price Category', fontsize=10, fontweight='bold')
+                                    cbar1.set_ticks(range(len(label_encoder.classes_)))
+                                    cbar1.set_ticklabels(label_encoder.classes_)
+                                    
+                                    # Right: Cluster labels
+                                    scatter2 = ax2.scatter(X_pca[:, 0], X_pca[:, 1], c=cluster_labels, 
+                                                         cmap='tab10', alpha=0.6, s=50,
+                                                         edgecolors='black', linewidth=0.5)
+                                    ax2.scatter(centroids_pca[:, 0], centroids_pca[:, 1],
+                                              c='red', marker='X', s=300, edgecolors='black', linewidth=2,
+                                              label='Centroids', zorder=5)
+                                    
+                                    ax2.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)', 
+                                                  fontsize=11, fontweight='bold')
+                                    ax2.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)', 
+                                                  fontsize=11, fontweight='bold')
+                                    ax2.set_title(f'K-Means Clusters (k={optimal_k}) - Unsupervised', 
+                                                 fontsize=13, fontweight='bold')
+                                    ax2.legend(fontsize=9)
+                                    ax2.grid(True, alpha=0.3)
+                                    
+                                    cbar2 = plt.colorbar(scatter2, ax=ax2)
+                                    cbar2.set_label('Cluster ID', fontsize=10, fontweight='bold')
+                                    
+                                    plt.tight_layout()
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                                    buf.seek(0)
+                                    st.image(buf, use_container_width=True)
+                                    plt.close(fig)
+                            
+                            # Additional insights
+                            st.divider()
+                            st.write("##### 🔍 Cluster Analysis Insights")
+                            
+                            import pandas as pd
+                            comparison_df = pd.DataFrame({
+                                'Cluster': results['cluster_labels'],
+                                'True_Label': results['y']
+                            })
+                            
+                            st.write("**Cluster composition by price categories:**")
+                            cross_tab = pd.crosstab(
+                                comparison_df['Cluster'], 
+                                comparison_df['True_Label'], 
+                                normalize='index'
+                            ) * 100
+                            
+                            st.dataframe(cross_tab.round(1), use_container_width=True)
+                            
+                            st.info("""
+                            💡 **Interpretation:**
+                            - **Silhouette Score** close to 1: Well-separated clusters
+                            - **Silhouette Score** close to 0: Overlapping clusters
+                            - **Silhouette Score** negative: Misclassified points
+                            - **Inertia**: Lower is better (compact clusters)
+                            """)
+                    
                     else:
                         # non-multivariate: keep existing scatter/residual/hist behavior
                         plot_type = st.selectbox("Plot type", options=["scatter", "residual", "hist"], index=0)
@@ -921,6 +1232,87 @@ def main():
                     max_features = st.selectbox("max_features", options=["auto", "sqrt", "log2"])  # placeholder
                     st.write({"n_estimators": n_estimators, "max_features": max_features})
 
+            elif selected_algo == "K-Means Clustering":
+                st.subheader("K-Means Clustering Settings")
+                if not _KMEANS_AVAILABLE:
+                    st.error(f"K-Means module could not be loaded: {_KMEANS_IMPORT_ERROR}")
+                else:
+                    st.info("K-Means is an unsupervised learning algorithm that groups similar data points into clusters.")
+                    
+                    file_path = os.path.join(os.getcwd(), "housing.csv")
+                    
+                    # Configuration
+                    st.write("#### Clustering Configuration")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        k_min = st.number_input("Minimum k to test", min_value=2, max_value=10, value=2, 
+                                               help="Minimum number of clusters to test")
+                        optimal_k_override = st.number_input("Force specific k (0 = auto-detect)", min_value=0, max_value=20, value=0,
+                                                            help="Set to 0 to auto-detect optimal k using elbow method")
+                    
+                    with col2:
+                        k_max = st.number_input("Maximum k to test", min_value=3, max_value=20, value=11,
+                                               help="Maximum number of clusters to test")
+                        save_plots_checkbox = st.checkbox("Save plots to 'output' folder", value=False)
+                    
+                    st.divider()
+                    
+                    # Show previous results if available
+                    if 'kmeans_results' in st.session_state:
+                        st.success("✅ K-Means analysis previously completed")
+                        results = st.session_state['kmeans_results']
+                        
+                        with st.expander("View Previous Results Summary", expanded=False):
+                            col_a, col_b, col_c = st.columns(3)
+                            col_a.metric("Optimal k", results['optimal_k'])
+                            col_b.metric("Silhouette Score", f"{results['final_silhouette']:.4f}")
+                            col_c.metric("Inertia", f"{results['final_inertia']:,.0f}")
+                    
+                    # Run button
+                    if st.button("🚀 Run K-Means Clustering Analysis", key="run_kmeans_config", type="primary"):
+                        with st.spinner("Running K-Means clustering analysis... This may take a minute."):
+                            try:
+                                k_range = range(k_min, k_max)
+                                optimal_k_param = None if optimal_k_override == 0 else optimal_k_override
+                                
+                                results = kmeans.run_kmeans_analysis(
+                                    data_path=file_path,
+                                    k_range=k_range,
+                                    optimal_k=optimal_k_param,
+                                    save_plots=save_plots_checkbox,
+                                    output_dir='output'
+                                )
+                                
+                                st.session_state['kmeans_results'] = results
+                                st.session_state['last_run_algo'] = "K-Means Clustering"
+                                st.success("✅ K-Means clustering analysis complete!")
+                                
+                                # Display metrics
+                                st.write("#### Clustering Results")
+                                col1, col2, col3 = st.columns(3)
+                                col1.metric("Optimal k", results['optimal_k'])
+                                col2.metric("Silhouette Score", f"{results['final_silhouette']:.4f}")
+                                col3.metric("Inertia", f"{results['final_inertia']:,.0f}")
+                                
+                                st.write("##### Cluster Distribution")
+                                import pandas as pd
+                                unique, counts = np.unique(results['cluster_labels'], return_counts=True)
+                                cluster_df = pd.DataFrame({
+                                    'Cluster ID': unique,
+                                    'Sample Count': counts,
+                                    'Percentage': [f"{(c/len(results['cluster_labels'])*100):.1f}%" for c in counts]
+                                })
+                                st.dataframe(cluster_df, use_container_width=True)
+                                
+                                if save_plots_checkbox:
+                                    st.info("📁 Plots saved to the 'output' folder")
+                                
+                            except Exception as e:
+                                st.error(f"K-Means clustering failed: {e}")
+                                import traceback
+                                st.exception(e)
+
             elif selected_algo == "K-Means":
                 with st.expander("K-Means settings", expanded=True):
                     n_clusters = st.slider("n_clusters", min_value=2, max_value=50, value=8)
@@ -1261,6 +1653,162 @@ def main():
                             except Exception as e:
                                 st.error(f"An error occurred during prediction: {e}")
                                 st.exception(e)  # Show full error details
+
+            # K-Means Clustering prediction UI
+            elif selected_algo == "K-Means Clustering":
+                st.markdown("### K-Means Clustering — Assign to Cluster")
+                st.markdown("Provide feature values to predict which cluster the data point belongs to.")
+                
+                if 'kmeans_results' not in st.session_state:
+                    st.info("No K-Means model found. Run the K-Means clustering analysis first from Model Configuration.")
+                else:
+                    results = st.session_state['kmeans_results']
+                    model = results['final_model']
+                    feature_names = results['feature_names']
+                    
+                    st.write(f"**Number of Clusters:** {results['optimal_k']}")
+                    st.write(f"**Features Used:** {', '.join(feature_names)}")
+                    
+                    st.divider()
+                    
+                    # Create input fields for all features
+                    st.markdown("#### Enter Feature Values")
+                    st.info("💡 Tip: Use the median values from your dataset as a starting point, then modify as needed.")
+                    
+                    # Get median values from original data for defaults
+                    df_ref = results.get('df_full')
+                    
+                    cols = st.columns(3)
+                    inputs = {}
+                    
+                    for i, feature in enumerate(feature_names):
+                        col = cols[i % 3]
+                        if df_ref is not None and feature in df_ref.columns:
+                            default_val = float(df_ref[feature].median())
+                        else:
+                            default_val = 0.0
+                        
+                        # Format label nicely
+                        label = feature.replace('_', ' ').title()
+                        inputs[feature] = col.number_input(label, value=default_val, format="%.4f", key=f"kmeans_{feature}")
+                    
+                    st.divider()
+                    
+                    if st.button("🔮 Predict Cluster Assignment", type="primary"):
+                        try:
+                            # Create input array
+                            input_values = [inputs[f] for f in feature_names]
+                            input_array = np.array([input_values])
+                            
+                            # Scale the input using the same scaler
+                            from sklearn.preprocessing import StandardScaler
+                            scaler = StandardScaler()
+                            scaler.fit(results['X_scaled'])  # Fit on the original scaled data
+                            
+                            # Actually, the X_scaled is already scaled, so we need to scale our new input
+                            # We need to fit scaler on original unscaled data
+                            # Let me get the original X from prepare_data
+                            import pandas as pd
+                            from algorithms.decision_tree import prepare_data
+                            
+                            data_path = os.path.join(os.getcwd(), "housing.csv")
+                            X_original, _, _, _ = prepare_data(data_path)
+                            
+                            # Handle NaN
+                            if X_original.isnull().any().any():
+                                mask = ~X_original.isnull().any(axis=1)
+                                X_original = X_original[mask]
+                            
+                            # Fit scaler on original data
+                            scaler = StandardScaler()
+                            scaler.fit(X_original)
+                            
+                            # Create input DataFrame
+                            input_df = pd.DataFrame([inputs], columns=feature_names)
+                            
+                            # Scale the input
+                            input_scaled = scaler.transform(input_df)
+                            
+                            # Predict cluster
+                            cluster_id = model.predict(input_scaled)[0]
+                            
+                            # Get distance to all centroids
+                            distances = model.transform(input_scaled)[0]
+                            
+                            st.success(f"### 🎯 Predicted Cluster: **{cluster_id}**")
+                            
+                            # Show cluster information
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric("Assigned Cluster", cluster_id)
+                            
+                            with col2:
+                                cluster_size = np.sum(results['cluster_labels'] == cluster_id)
+                                total_size = len(results['cluster_labels'])
+                                st.metric("Cluster Size", f"{cluster_size:,} ({cluster_size/total_size*100:.1f}%)")
+                            
+                            with col3:
+                                st.metric("Distance to Centroid", f"{distances[cluster_id]:.4f}")
+                            
+                            st.divider()
+                            
+                            # Show distances to all centroids
+                            st.markdown("#### 📏 Distances to All Cluster Centroids")
+                            distance_df = pd.DataFrame({
+                                'Cluster ID': range(results['optimal_k']),
+                                'Distance': distances,
+                                'Is Closest': ['✅ Yes' if i == cluster_id else '' for i in range(results['optimal_k'])]
+                            })
+                            distance_df = distance_df.sort_values('Distance')
+                            st.dataframe(distance_df, use_container_width=True, hide_index=True)
+                            
+                            # Show cluster characteristics
+                            st.divider()
+                            st.markdown("#### 🔍 Cluster Characteristics")
+                            
+                            # Get centroid for this cluster
+                            centroid = results['centroids'][cluster_id]
+                            
+                            # Create comparison
+                            comparison_data = {
+                                'Feature': feature_names,
+                                'Your Input': [inputs[f] for f in feature_names],
+                                'Cluster Centroid (scaled)': centroid,
+                            }
+                            
+                            comparison_df = pd.DataFrame(comparison_data)
+                            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                            
+                            # Show which price category is dominant in this cluster
+                            st.divider()
+                            st.markdown("#### 💰 Price Category Analysis for This Cluster")
+                            
+                            cluster_mask = results['cluster_labels'] == cluster_id
+                            cluster_prices = results['y'][cluster_mask]
+                            
+                            price_counts = cluster_prices.value_counts()
+                            price_percentages = (price_counts / len(cluster_prices) * 100).round(1)
+                            
+                            price_df = pd.DataFrame({
+                                'Price Category': price_counts.index,
+                                'Count': price_counts.values,
+                                'Percentage': [f"{p}%" for p in price_percentages.values]
+                            })
+                            
+                            st.dataframe(price_df, use_container_width=True, hide_index=True)
+                            
+                            # Dominant category
+                            dominant_category = price_counts.index[0]
+                            dominant_pct = price_percentages.iloc[0]
+                            
+                            emoji_map = {'high': '🤑', 'medium': '🏠', 'low': '🪙'}
+                            st.info(f"**Dominant Price Category:** {dominant_category.upper()} {emoji_map.get(dominant_category, '')} ({dominant_pct}% of cluster)")
+                            
+                        except Exception as e:
+                            st.error(f"Cluster prediction failed: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
 
             else:
                 # keep existing LR prediction UI
