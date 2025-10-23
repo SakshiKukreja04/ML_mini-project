@@ -35,6 +35,17 @@ except Exception as e:
     _SVM_AVAILABLE = False
     _SVM_IMPORT_ERROR = e
 
+try:
+    from algorithms.ensemble_learning import (
+        find_best_params as find_best_ensemble_params,
+        train_and_evaluate as train_and_evaluate_ensemble,
+        plot_results as plot_results_ensemble
+    )
+    _ENSEMBLE_AVAILABLE = True
+except Exception as e:
+    _ENSEMBLE_AVAILABLE = False
+    _ENSEMBLE_IMPORT_ERROR = e
+
 # -----------------------------
 # Header / Page Config
 # -----------------------------
@@ -81,10 +92,9 @@ def main():
         "Linear Regression",
         "Multivariate Linear Regression",
         "Decision Tree Classifier",
-        "SVM",
-        "Random Forest",
-        "K-Means",
-        "DBSCAN",
+        "Support Vector Machine",
+        "Ensemble Learning (Bagging/Boosting)",
+        "DBSCAN/K-Means Clustering",
         "PCA/SVD",
     ]
 
@@ -138,9 +148,39 @@ def main():
                 st.session_state['mvnl_artifacts'] = m_artifacts
                 st.session_state['mvnl_plot'] = m_artifacts.get('plot_png')
             
-            elif selected_algo == "SVM":
-                st.info("Please go to the 'Model Configuration ⚙️' tab to tune and run the SVM model.")
-                st.session_state['last_run_algo'] = "SVM"
+            elif selected_algo == "Support Vector Machine":
+                st.info("Please go to the 'Model Configuration ⚙️' tab to run the SVM (SVC) model.")
+                st.session_state['last_run_algo'] = "Support Vector Machine"
+            
+            elif selected_algo == "Ensemble Learning (Bagging/Boosting)":
+                data_path = os.path.join(os.getcwd(), "housing.csv")
+                
+                # Check if we have cached best parameters
+                if 'rf_best_params' not in st.session_state:
+                    st.info("🔍 Running GridSearchCV to find best parameters (first time only)...")
+                    with st.spinner("Finding best parameters... This may take a few minutes."):
+                        param_results = find_best_ensemble_params(data_path, random_state=42)
+                        st.session_state['rf_best_params'] = param_results['best_params']
+                        st.session_state['rf_best_score'] = param_results['best_score']
+                        st.success(f"✅ Found best parameters! CV Score: {param_results['best_score']:.2%}")
+                
+                # Now train with the best parameters
+                best_params = st.session_state['rf_best_params']
+                with st.spinner("Training Ensemble models..."):
+                    metrics, artifacts = train_and_evaluate_ensemble(
+                        data_path,
+                        rf_params=best_params,
+                        base_tree_max_depth=10,  # Default depth
+                        random_state=42
+                    )
+                    
+                    if "error" not in metrics['single_tree']:
+                        st.session_state['ensemble_metrics'] = metrics
+                        st.session_state['ensemble_artifacts'] = artifacts
+                        st.session_state['last_run_algo'] = "Ensemble Learning (Bagging/Boosting)"
+                        st.success("✅ Models trained successfully!")
+                    else:
+                        st.error(f"Error: {metrics['single_tree']['error']}")
             
             else:
                 st.warning(f"Selected algorithm not available or has missing dependencies: {selected_algo}")
@@ -391,6 +431,146 @@ def main():
                                 st.image(plot_bytes_lc, use_container_width=True)
                         else:
                             graph_placeholder.info("Run the SVM model from the 'Model Configuration' tab to see results.")
+                    
+                    elif selected_algo == "Ensemble Learning (Bagging/Boosting)" or st.session_state.get('last_run_algo') == "Ensemble Learning (Bagging/Boosting)":
+                        # Ensemble Learning Visualization - Before and After Comparison
+                        if 'ensemble_metrics' not in st.session_state:
+                            graph_placeholder.info("Run the Ensemble models from the 'Model Configuration' tab to see results.")
+                        else:
+                            metrics = st.session_state['ensemble_metrics']
+                            artifacts = st.session_state['ensemble_artifacts']
+                            
+                            st.write("#### Ensemble Learning: Decision Tree vs. Random Forest")
+                            
+                            # --- "Before vs After" Accuracy Metrics ---
+                            st.write("##### Test Set Accuracy Comparison")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Baseline (Single Decision Tree)", f"{metrics['single_tree']['accuracy']:.2%}")
+                            with col2:
+                                st.metric("Ensemble (Random Forest)", f"{metrics['random_forest']['accuracy']:.2%}",
+                                         delta=f"{metrics['random_forest']['accuracy'] - metrics['single_tree']['accuracy']:.2%}")
+
+                            st.write("##### Random Forest Best Parameters Used:")
+                            # Display the params that were found and used
+                            if 'rf_best_params' in st.session_state:
+                                st.json(st.session_state['rf_best_params'])
+                            else:
+                                # Fallback just in case
+                                st.json(metrics['random_forest'].get('best_params', {"error": "Params not found in session"}))
+                            
+                            st.divider()
+
+                            # --- Dropdown for Visualization Selection ---
+                            st.write("##### 📊 Select Visualization")
+                            plot_type = st.selectbox(
+                                "Choose visualization type",
+                                options=[
+                                    "Decision Boundary (PCA)",
+                                    "Decision Boundary Scatter (Publication-Ready)",
+                                    "Confusion Matrix",
+                                    "Learning Curves",
+                                    "Probability Density Distribution",
+                                    "Feature Importance"
+                                ],
+                                index=0,
+                                key="ensemble_plot_selector"
+                            )
+                            
+                            st.divider()
+                            
+                            # Display selected visualization
+                            if plot_type == "Decision Boundary (PCA)":
+                                st.write("##### 🎯 Decision Boundary - Class Separation View")
+                                st.info("📌 2D PCA projection showing decision boundaries with probability contours")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**BEFORE: Single Decision Tree**")
+                                    with st.spinner("Generating Tree Boundary Plot..."):
+                                        plot_pca_tree = plot_results_ensemble(artifacts, 'single_tree', 'decision_boundary_pca')
+                                        st.image(plot_pca_tree, use_container_width=True)
+                                with col2:
+                                    st.write("**AFTER: Random Forest**")
+                                    with st.spinner("Generating RF Boundary Plot..."):
+                                        plot_pca_rf = plot_results_ensemble(artifacts, 'random_forest', 'decision_boundary_pca')
+                                        st.image(plot_pca_rf, use_container_width=True)
+                            
+                            elif plot_type == "Decision Boundary Scatter (Publication-Ready)":
+                                st.write("##### 🎨 Standalone Decision Boundary (Publication-Ready)")
+                                st.info("📌 Clean scatter plots with colored decision regions - perfect for presentations!")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**BEFORE: Single Decision Tree**")
+                                    with st.spinner("Creating BEFORE scatter plot..."):
+                                        plot_scatter_tree = plot_results_ensemble(artifacts, 'single_tree', 'decision_boundary_scatter')
+                                        st.image(plot_scatter_tree, use_container_width=True)
+                                        # Add download button for standalone PNG
+                                        st.download_button(
+                                            label="📥 Download BEFORE (Tree)",
+                                            data=plot_scatter_tree,
+                                            file_name="before_tree.png",
+                                            mime="image/png",
+                                            help="Download this plot as PNG for presentations"
+                                        )
+                                with col2:
+                                    st.write("**AFTER: Random Forest**")
+                                    with st.spinner("Creating AFTER scatter plot..."):
+                                        plot_scatter_rf = plot_results_ensemble(artifacts, 'random_forest', 'decision_boundary_scatter')
+                                        st.image(plot_scatter_rf, use_container_width=True)
+                                        # Add download button for standalone PNG
+                                        st.download_button(
+                                            label="📥 Download AFTER (Forest)",
+                                            data=plot_scatter_rf,
+                                            file_name="after_rf.png",
+                                            mime="image/png",
+                                            help="Download this plot as PNG for presentations"
+                                        )
+                            
+                            elif plot_type == "Confusion Matrix":
+                                st.write("##### 📋 Confusion Matrix - Classification Performance")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**BEFORE: Single Decision Tree**")
+                                    plot_cm_tree = plot_results_ensemble(artifacts, 'single_tree', 'confusion_matrix')
+                                    st.image(plot_cm_tree, use_container_width=True)
+                                with col2:
+                                    st.write("**AFTER: Random Forest**")
+                                    plot_cm_rf = plot_results_ensemble(artifacts, 'random_forest', 'confusion_matrix')
+                                    st.image(plot_cm_rf, use_container_width=True)
+                            
+                            elif plot_type == "Learning Curves":
+                                st.write("##### 📈 Learning Analysis")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**BEFORE: Single Decision Tree**")
+                                    with st.spinner("Generating Tree Learning Curve..."):
+                                        plot_lc_tree = plot_results_ensemble(artifacts, 'single_tree', 'learning_curve')
+                                        st.image(plot_lc_tree, use_container_width=True)
+                                with col2:
+                                    st.write("**AFTER: Random Forest**")
+                                    with st.spinner("Generating RF Ensemble Effect..."):
+                                        plot_lc_rf = plot_results_ensemble(artifacts, 'random_forest', 'learning_curve')
+                                        st.image(plot_lc_rf, use_container_width=True)
+                            
+                            elif plot_type == "Probability Density Distribution":
+                                st.write("##### 📊 Model Confidence Distribution")
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**BEFORE: Single Decision Tree**")
+                                    with st.spinner("Analyzing Tree Confidence..."):
+                                        plot_prob_tree = plot_results_ensemble(artifacts, 'single_tree', 'probability_density')
+                                        st.image(plot_prob_tree, use_container_width=True)
+                                with col2:
+                                    st.write("**AFTER: Random Forest**")
+                                    with st.spinner("Analyzing RF Confidence..."):
+                                        plot_prob_rf = plot_results_ensemble(artifacts, 'random_forest', 'probability_density')
+                                        st.image(plot_prob_rf, use_container_width=True)
+                            
+                            elif plot_type == "Feature Importance":
+                                st.write("##### 🎯 Feature Importance Analysis")
+                                st.info("📌 Feature importance is only available for Random Forest (ensemble method)")
+                                plot_fi_rf = plot_results_ensemble(artifacts, 'random_forest', 'feature_importance')
+                                st.image(plot_fi_rf, use_container_width=True)
                     
                     else:
                         # non-multivariate: keep existing scatter/residual/hist behavior
@@ -655,6 +835,85 @@ def main():
                                 except Exception as e:
                                     st.error(f"Training failed: {e}")
                                     st.exception(e)
+            
+            elif selected_algo == "Ensemble Learning (Bagging/Boosting)":
+                st.subheader("Ensemble Learning (Bagging/Boosting) Settings")
+                if not _ENSEMBLE_AVAILABLE:
+                    st.error(f"Ensemble Learning module could not be loaded: {_ENSEMBLE_IMPORT_ERROR}")
+                else:
+                    file_path = os.path.join(os.getcwd(), "housing.csv")
+                    
+                    # Show cached parameters if available
+                    if 'rf_best_params' in st.session_state:
+                        st.success("✅ Using cached best parameters (found via GridSearch)")
+                        with st.expander("View Best Parameters", expanded=False):
+                            st.json(st.session_state['rf_best_params'])
+                            st.write(f"**Best CV Score:** {st.session_state['rf_best_score']:.2%}")
+                        
+                        if st.button("🔄 Re-run GridSearchCV (Optional)", key="rerun_gridsearch"):
+                            with st.spinner("Running GridSearchCV... This will take several minutes."):
+                                param_results = find_best_ensemble_params(file_path, random_state=42)
+                                st.session_state['rf_best_params'] = param_results['best_params']
+                                st.session_state['rf_best_score'] = param_results['best_score']
+                                st.success(f"✅ Updated! CV Score: {param_results['best_score']:.2%}")
+                                st.rerun()
+                    else:
+                        st.info("""
+                        ℹ️ **First-time setup:** Click the button below to automatically:
+                        1. Run GridSearchCV to find best parameters (only once)
+                        2. Train both models for comparison
+                        
+                        Future runs will use cached parameters and be much faster!
+                        """)
+                    
+                    st.divider()
+                    
+                    # Configuration
+                    st.write("#### Model Configuration")
+                    base_tree_depth = st.slider(
+                        "Baseline Tree Max Depth", 
+                        min_value=2, 
+                        max_value=20, 
+                        value=10, 
+                        key="base_tree_depth",
+                        help="Set the max_depth for the 'before' Decision Tree. A lower number shows underfitting, a higher number shows overfitting."
+                    )
+
+                    # Single unified button
+                    if st.button("🚀 Train Ensemble Models", key="run_ensemble_unified", type="primary"):
+                        # Step 1: Find best params if not cached
+                        if 'rf_best_params' not in st.session_state:
+                            st.info("🔍 Finding best parameters (first time only)...")
+                            with st.spinner("Running GridSearchCV... This may take a few minutes."):
+                                param_results = find_best_ensemble_params(file_path, random_state=42)
+                                st.session_state['rf_best_params'] = param_results['best_params']
+                                st.session_state['rf_best_score'] = param_results['best_score']
+                                st.success(f"✅ Found best parameters! CV Score: {param_results['best_score']:.2%}")
+                        
+                        # Step 2: Train models
+                        best_params = st.session_state['rf_best_params']
+                        with st.spinner("Training Baseline and Ensemble models..."):
+                            metrics, artifacts = train_and_evaluate_ensemble(
+                                file_path,
+                                rf_params=best_params,
+                                base_tree_max_depth=base_tree_depth,
+                                random_state=42
+                            )
+                            
+                            if "error" in metrics['single_tree']:
+                                st.error(f"Error during training: {metrics['single_tree']['error']}")
+                            else:
+                                st.session_state['ensemble_metrics'] = metrics
+                                st.session_state['ensemble_artifacts'] = artifacts
+                                st.session_state['last_run_algo'] = "Ensemble Learning (Bagging/Boosting)"
+                                
+                                st.success("✅ Models trained successfully!")
+                                
+                                # Display metrics
+                                st.write("#### Test Set Accuracy")
+                                col1, col2 = st.columns(2)
+                                col1.metric("Baseline (Single Decision Tree)", f"{metrics['single_tree']['accuracy']:.2%}")
+                                col2.metric("Ensemble (Random Forest)", f"{metrics['random_forest']['accuracy']:.2%}")
 
             elif selected_algo == "Random Forest":
                 with st.expander("Random Forest settings", expanded=True):
@@ -909,6 +1168,99 @@ def main():
                         except Exception as e:
                             st.error(f"An error occurred during prediction: {e}")
                             st.exception(e)  # Show full error details
+            
+            elif selected_algo == "Ensemble Learning (Bagging/Boosting)":
+                st.markdown("### Predict with Ensemble (Random Forest)")
+                if 'ensemble_artifacts' not in st.session_state:
+                    st.warning("Please train the Ensemble models on the 'Model Configuration' tab first.")
+                else:
+                    # We only use the BEST model (Random Forest) for prediction
+                    try:
+                        ensemble_artifacts = st.session_state['ensemble_artifacts']['random_forest']
+                        model = ensemble_artifacts['model']
+                        feature_names = ensemble_artifacts['features']
+                    except KeyError:
+                        st.error("Model artifacts are not in the correct format. Please retrain the model.")
+                    else:
+                        st.info(f"Using the Random Forest model. Provide values for all {len(feature_names)} features.")
+                        
+                        # Define original features (same as SVM but with engineered features)
+                        numeric_features = [
+                            'housing_median_age', 'median_income',
+                            'rooms_per_person', 'bedrooms_per_room', 'population_per_household'
+                        ]
+                        categorical_feature = 'ocean_proximity'
+                        ocean_proximity_categories = ['<1H OCEAN', 'INLAND', 'ISLAND', 'NEAR BAY', 'NEAR OCEAN']
+                        
+                        user_inputs = {}
+                        
+                        st.write("##### Numeric Features")
+                        cols = st.columns(3)
+                        with cols[0]:
+                            user_inputs['housing_median_age'] = st.number_input(
+                                "Housing Median Age (years)", 
+                                min_value=1.0, max_value=100.0, value=30.0, step=1.0, format="%.1f",
+                                key="ensemble_input_age"
+                            )
+                            user_inputs['median_income'] = st.number_input(
+                                "Median Income (x$10k)", 
+                                min_value=0.5, max_value=15.0, value=3.5, step=0.5, format="%.2f",
+                                key="ensemble_input_income"
+                            )
+                        with cols[1]:
+                            user_inputs['rooms_per_person'] = st.number_input(
+                                "Rooms per Person", 
+                                min_value=0.1, max_value=50.0, value=2.0, step=0.1, format="%.2f",
+                                key="ensemble_input_rpp"
+                            )
+                            user_inputs['bedrooms_per_room'] = st.number_input(
+                                "Bedrooms per Room", 
+                                min_value=0.01, max_value=1.0, value=0.2, step=0.01, format="%.2f",
+                                key="ensemble_input_bpr"
+                            )
+                        with cols[2]:
+                            user_inputs['population_per_household'] = st.number_input(
+                                "Population per Household", 
+                                min_value=0.5, max_value=20.0, value=2.5, step=0.1, format="%.2f",
+                                key="ensemble_input_pph"
+                            )
+                        
+                        st.write("##### Categorical Feature")
+                        user_inputs[categorical_feature] = st.selectbox(
+                            "Ocean Proximity",
+                            options=ocean_proximity_categories,
+                            index=0,
+                            key="ensemble_input_ocean"
+                        )
+                        
+                        if st.button("Predict Ensemble Class 🔮", key="predict_ensemble"):
+                            try:
+                                import pandas as _pd
+                                
+                                # 1. Create a single-row DataFrame from user inputs
+                                input_df_single_row = _pd.DataFrame([user_inputs])
+                                
+                                # 2. One-hot encode the categorical feature
+                                input_df_encoded = _pd.get_dummies(input_df_single_row, columns=[categorical_feature], drop_first=False)
+                                
+                                # 3. Reindex to match the model's training columns
+                                input_df_final = input_df_encoded.reindex(columns=feature_names, fill_value=0)
+                                
+                                # 4. Make prediction (NO SCALER NEEDED)
+                                prediction = model.predict(input_df_final)
+                                
+                                # Display prediction with color coding
+                                price_category = prediction[0]
+                                if price_category == 'Low':
+                                    st.success(f"Predicted Price Category: **{price_category}** 🪙")
+                                elif price_category == 'Medium':
+                                    st.info(f"Predicted Price Category: **{price_category}** 🏠")
+                                else:  # High
+                                    st.warning(f"Predicted Price Category: **{price_category}** 🤑")
+                                
+                            except Exception as e:
+                                st.error(f"An error occurred during prediction: {e}")
+                                st.exception(e)  # Show full error details
 
             else:
                 # keep existing LR prediction UI
