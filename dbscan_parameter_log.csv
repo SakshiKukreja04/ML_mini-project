@@ -1,0 +1,2 @@
+timestamp,eps,min_samples,n_clusters,n_noise,silhouette_score,noise_ratio_pct
+2025-10-29 00:39:02,0.16,14,10,2760,0.019652040145748357,13.507561297900455
